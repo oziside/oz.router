@@ -1,7 +1,7 @@
 {
   "name": "oz/oz.router",
   "type": "bitrix-d7-module",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "OZ Router module",
   "require": {
     "php": ">=8.1",
