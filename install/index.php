@@ -67,6 +67,14 @@ class oz_router extends CModule
         // to local
         CopyDirFiles(__DIR__ . "/components/", $_SERVER["DOCUMENT_ROOT"]."/local/components", true, true);
 		CopyDirFiles(__DIR__ . "/js/",   $_SERVER["DOCUMENT_ROOT"]."/local/js", true, true);
+       
+        $this->registerUrlRewriteRule([
+            'CONDITION' => '#^/api#',
+            'RULE' => '',
+            'ID' => null,
+            'PATH' => '/bitrix/services/oz.api/index.php',
+            'SORT' => 200,
+        ]);
 
         return true;
     }
@@ -128,5 +136,22 @@ class oz_router extends CModule
                     $this->UnInstallFiles();
             }
         }
+    }
+
+    private function registerUrlRewriteRule(array $rule): void
+    {
+        $siteId = \CSite::GetDefSite();
+
+        if (!$siteId)
+        {
+            return;
+        }
+
+        Main\UrlRewriter::delete($siteId, [
+            'CONDITION' => $rule['CONDITION'],
+            'PATH' => $rule['PATH'],
+        ]);
+
+        Main\UrlRewriter::add($siteId, $rule);
     }
 }
