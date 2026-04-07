@@ -9,8 +9,7 @@ use Bitrix\Main\{
     HttpRequest,
     HttpResponse
 };
-use Oz\Router\Problem\ProblemDetailsResponseFactory;
-use Oz\Router\Problem\ProblemException;
+use Oz\Router\Http\Exception;
 
 use Oz\Router\Http\HandlerInvoker;
 use Oz\Router\Http\RequestContainerFactory;
@@ -25,7 +24,6 @@ use Oz\Router\Routing\Route;
 use Oz\Router\Routing\RouteCollection;
 use Oz\Router\Routing\RouteRegistrar;
 use Oz\Router\Routing\RouteGroup;
-use Throwable;
 
 
 final class Router
@@ -47,7 +45,6 @@ final class Router
     private HandlerInvoker $handlerInvoker;
     private ResponseNormalizer $responseNormalizer;
     private Path $pathHelper;
-    private ProblemDetailsResponseFactory $problemResponseFactory;
 
     public function __construct(
         array $definitions = [],
@@ -74,7 +71,6 @@ final class Router
         $this->containerFactory = new RequestContainerFactory($this->definitions);
         $this->handlerInvoker = new HandlerInvoker();
         $this->pathHelper = new Path();
-        $this->problemResponseFactory = new ProblemDetailsResponseFactory();
     }
 
 
@@ -214,75 +210,56 @@ final class Router
         $method  = $this->extractMethod($request);
         $path    = $this->extractPath($request);
 
-        try
+        if ($method === null)
         {
-            if ($method === null)
+            throw new Exception\BadRequestHttpException(
+                message: 'HTTP request method is missing or invalid.',
+            );
+        }
+
+        $matched = $this->routes->match($method, $path);
+
+        if ($matched === null)
+        {
+            $allowedMethods = $this->routes->getAllowedMethods($path, $method);
+
+            if ($allowedMethods !== [])
             {
-                throw new ProblemException(
-                    status: 400,
-                    title: 'Bad Request',
-                    detail: 'HTTP request method is missing or invalid.',
-                    type: 'urn:oz-router:problem:bad-request'
+                throw new Exception\MethodNotAllowedHttpException(
+                    message: sprintf('The %s method is not supported for route %s.', $method, $path),
                 );
             }
 
-            $matched = $this->routes->match($method, $path);
-
-            if ($matched === null)
-            {
-                $allowedMethods = $this->routes->getAllowedMethods($path, $method);
-
-                if ($allowedMethods !== [])
-                {
-                    throw new ProblemException(
-                        status: 405,
-                        title: 'Method Not Allowed',
-                        detail: sprintf('HTTP method %s is not allowed for %s.', $method, $path),
-                        type: 'urn:oz-router:problem:method-not-allowed',
-                        headers: [
-                            'Allow' => implode(', ', $allowedMethods),
-                        ]
-                    );
-                }
-
-                throw new ProblemException(
-                    status: 404,
-                    title: 'Not Found',
-                    detail: sprintf('Route %s was not found.', $path),
-                    type: 'urn:oz-router:problem:not-found'
-                );
-            }
-
-            /** @var Route $route */
-            [$route, $routeParams] = $matched;
-
-            $container = $this->containerFactory->build(
-                $application,
-                $context,
-                $request,
-                $routeParams
-            );
-
-            $effectiveMiddlewares = $this->middlewareSelector->select($route);
-            $resolvedMiddlewares = $this->middlewareResolver->resolve($effectiveMiddlewares, $container);
-
-            $destination = function (HttpRequest $request) use ($route, $container, $routeParams): HttpResponse
-            {
-                $result = $this->handlerInvoker->invoke($route->getHandler(), $container, $request, $routeParams);
-
-                return $this->responseNormalizer->normalize($result);
-            };
-
-            return $this->middlewareRunner->run(
-                $resolvedMiddlewares,
-                $request,
-                $destination
+            throw new Exception\NotFoundHttpException(
+                message: sprintf('Cannot %s %s', $method, $path),
             );
         }
-        catch (Throwable $exception)
+
+        /** @var Route $route */
+        [$route, $routeParams] = $matched;
+
+        $container = $this->containerFactory->build(
+            $application,
+            $context,
+            $request,
+            $routeParams
+        );
+
+        $effectiveMiddlewares = $this->middlewareSelector->select($route);
+        $resolvedMiddlewares = $this->middlewareResolver->resolve($effectiveMiddlewares, $container);
+
+        $destination = function (HttpRequest $request) use ($route, $container, $routeParams): HttpResponse
         {
-            return $this->problemResponseFactory->create($exception, $request);
-        }
+            $result = $this->handlerInvoker->invoke($route->getHandler(), $container, $request, $routeParams);
+
+            return $this->responseNormalizer->normalize($result);
+        };
+
+        return $this->middlewareRunner->run(
+            $resolvedMiddlewares,
+            $request,
+            $destination
+        );
     }
 
 

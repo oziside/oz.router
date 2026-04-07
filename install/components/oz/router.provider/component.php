@@ -6,8 +6,6 @@ use Bitrix\Main\{
     Loader,
     Application
 };
-use Oz\Router\Problem\ProblemDetailsResponseFactory;
-use Throwable;
 
 
 if(!Loader::includeSharewareModule('oz.router'))
@@ -39,21 +37,9 @@ if($arParams['ROUTES_FILE_PATH'])
 
 $kernel = new \Oz\Router\RouterRunner($router);
 
-try
-{
-    $kernel
-        ->run()
-        ->send();
-}
-catch (Throwable $exception)
-{
-    $context = $application->getContext();
-    $request = $context->getRequest();
-    $response = (new ProblemDetailsResponseFactory())->create($exception, $request);
-
-    $context->setResponse($response);
-    $response->send();
-}
+$kernel
+    ->run()
+    ->send();
 
 $application
 	->terminate(0);

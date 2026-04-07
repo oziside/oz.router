@@ -3,22 +3,16 @@ declare(strict_types=1);
 
 namespace Oz\Router\Validation;
 
-use Oz\Router\Problem\ProblemException;
+use Oz\Router\Http\Exception\UnprocessableContentHttpException;
 
-final class RequestValidationException extends ProblemException
+final class RequestValidationException extends UnprocessableContentHttpException
 {
     public function __construct(
         private readonly array $errors,
         string $message = 'Request validation failed.'
     ) {
         parent::__construct(
-            status: 422,
-            title: 'Unprocessable Content',
-            detail: $message,
-            type: 'urn:oz-router:problem:validation-failed',
-            extensions: [
-                'errors' => $errors,
-            ]
+            message: $message,
         );
     }
 

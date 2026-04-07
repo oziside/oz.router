@@ -10,7 +10,6 @@ use Bitrix\Main\{
     SystemException
 };
 
-
 final class RouterRunner
 {
     public function __construct(
@@ -37,15 +36,25 @@ final class RouterRunner
             throw new SystemException('HttpContext is not initialized');
         }
 
-        $request  = $context->getRequest();
-        $response = $this->router->dispatch(
-            $request, 
-            $context, 
-            $application
-        );
+        $request = $context->getRequest();
+
+        try
+        {
+            $response = $this->router->dispatch(
+                $request, 
+                $context, 
+                $application
+            );
+        }
+        catch (\Throwable $exception)
+        {
+            $exceptionHandler = new ExceptionHandler;
+
+            $response = $exceptionHandler->handle($exception, $request);
+        }
 
         $context->setResponse($response);
-
+        
         return $response;
     }
 }
