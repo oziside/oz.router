@@ -1,28 +1,37 @@
 <?php
 declare(strict_types=1);
-
 namespace Oz\Router\Validation;
 
+use ReflectionParameter;
 use Bitrix\Main\Error;
 use Bitrix\Main\Validation\ValidationService;
-use ReflectionParameter;
+
 
 final class RequestValidator
 {
     private ValidationService $validationService;
 
-    public function __construct(?ValidationService $validationService = null)
+    public function __construct()
     {
-        $this->validationService = $validationService ?? new ValidationService();
+        $this->validationService = new ValidationService;
     }
 
-    public function validateHandlerArgument(
+    /**
+     * Validates a request parameter against its defined validation rules.
+     * 
+     * @param ReflectionParameter $parameter
+     * @param mixed $value
+     * @param bool $validateObject
+     * 
+     * @return void
+    */
+    public function validate(
         ReflectionParameter $parameter,
         mixed $value,
         bool $validateObject = false
     ): void
     {
-        $errors = $this->normalizeErrors(
+        $errors = $this->mapErrors(
             $this->validationService->validateParameter($parameter, $value)->getErrors()
         );
 
@@ -30,7 +39,7 @@ final class RequestValidator
         {
             $errors = array_merge(
                 $errors,
-                $this->normalizeErrors(
+                $this->mapErrors(
                     $this->validationService->validate($value)->getErrors(),
                     $parameter->getName()
                 )
@@ -43,16 +52,19 @@ final class RequestValidator
         }
     }
 
-    public function validate(
-        ReflectionParameter $parameter,
-        mixed $value,
-        bool $validateObject = false
-    ): void
-    {
-        $this->validateHandlerArgument($parameter, $value, $validateObject);
-    }
 
-    private function normalizeErrors(iterable $errors, ?string $prefix = null): array
+    /**
+     * Normalizes a list of validation errors.
+     * 
+     * @param iterable $errors
+     * @param string|null $prefix
+     * 
+     * @return array
+    */
+    private function mapErrors(
+        iterable $errors, 
+        ?string $prefix = null
+    ): array
     {
         $normalized = [];
 
@@ -63,22 +75,11 @@ final class RequestValidator
                 continue;
             }
 
-            $code = $this->normalizeCode($prefix, $error->getCode());
+            $field = $this->buildErrorField($prefix, $error->getCode());
             $item = [
                 'message' => $error->getMessage(),
-                'code' => $code,
+                'field' => $field,
             ];
-
-            if ($code !== null)
-            {
-                $item['field'] = $code;
-            }
-
-            $customData = $error->getCustomData();
-            if ($customData !== null)
-            {
-                $item['customData'] = $customData;
-            }
 
             $normalized[] = $item;
         }
@@ -86,9 +87,22 @@ final class RequestValidator
         return $normalized;
     }
 
-    private function normalizeCode(?string $prefix, int|string $code): ?string
+
+    /**
+     * Normalizes an error code by combining it with an optional prefix.
+     * 
+     * @param string|null $prefix
+     * @param int|string $code
+     * 
+     * @return string|null
+    */
+    private function buildErrorField(
+        ?string $prefix, 
+        int|string $code
+    ): ?string
     {
         $normalizedCode = (string)$code;
+
         if ($normalizedCode === '' || $normalizedCode === '0')
         {
             $normalizedCode = null;

@@ -156,7 +156,6 @@ final class UpdateProductReq
   "errors": [
     {
       "message": "This value should not be blank.",
-      "code": "payload.name",
       "field": "payload.name"
     }
   ]
@@ -166,6 +165,7 @@ final class UpdateProductReq
 Нюансы:
 
 - ошибки валидации объекта получают префикс имени аргумента, например `payload.email`
+- ключ `field` присутствует всегда; если путь к полю определить нельзя, он будет `null`
 - пользовательские данные ошибки сохраняются в `customData`, если они есть
 - статус ответа всегда `422`
 - `Content-Type` ответа: `application/problem+json`

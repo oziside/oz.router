@@ -13,6 +13,7 @@ use Bitrix\Main\{
 
 use Oz\Router\Http\Exception\HttpException;
 use Oz\Router\Http\Exception\InternalServerErrorHttpException;
+use Oz\Router\Validation\RequestValidationException;
 
 
 final class ExceptionHandler
@@ -78,10 +79,17 @@ final class ExceptionHandler
     ): Response\Json
     {
         $response = new Response\Json(options: Json::DEFAULT_OPTIONS);
-        $response->setData([
+        $data = [
             'statusCode' => $exception->getStatusCode(),
             'message'    => $exception->getMessage(),
-        ]);
+        ];
+
+        if ($exception instanceof RequestValidationException)
+        {
+            $data['errors'] = $exception->getErrors();
+        }
+
+        $response->setData($data);
         $response->setStatus($exception->getStatusCode());
 
         return $response;
