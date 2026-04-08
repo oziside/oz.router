@@ -213,7 +213,7 @@ final class Router
         if ($method === null)
         {
             throw new Exception\BadRequestHttpException(
-                message: 'HTTP request method is missing or invalid.',
+                'HTTP request method is missing or invalid.',
             );
         }
 
@@ -226,12 +226,12 @@ final class Router
             if ($allowedMethods !== [])
             {
                 throw new Exception\MethodNotAllowedHttpException(
-                    message: sprintf('The %s method is not supported for route %s.', $method, $path),
+                    sprintf('The %s method is not supported for route %s.', $method, $path),
                 );
             }
 
             throw new Exception\NotFoundHttpException(
-                message: sprintf('Cannot %s %s', $method, $path),
+                sprintf('Cannot %s %s', $method, $path),
             );
         }
 
