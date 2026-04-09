@@ -1,10 +1,10 @@
-[← Previous Page](validation.md) · [Back to README](../README.md) · [Next Page →](configuration.md)
+[← Previous Page](guards.md) · [Back to README](../README.md) · [Next Page →](validation.md)
 
 # Middleware
 
-## Интерфейс
+## Контракт
 
-Middleware должны реализовывать `Oz\Router\Interface\MiddlewareInterface`:
+Middleware должны реализовать `Oz\Router\Interface\MiddlewareInterface`:
 
 ```php
 use Bitrix\Main\HttpRequest;
@@ -27,13 +27,56 @@ final class AuthMiddleware implements MiddlewareInterface
 }
 ```
 
-Экземпляры middleware резолвятся из того же PHP-DI контейнера, что и обработчики маршрутов, поэтому зависимости в конструкторе можно автосвязывать.
+Экземпляры middleware резолвятся через тот же request-scoped контейнер, что и handler.
+
+## Подключение middleware
+
+Глобально:
+
+```php
+$router->middleware([
+    AuthMiddleware::class,
+    TraceMiddleware::class,
+]);
+```
+
+Внутри группы:
+
+```php
+$router->group('/api', static function (Router $router): void {
+    $router->middleware(AuthMiddleware::class);
+    $router->get('/users', [UserController::class, 'index']);
+});
+```
+
+На одном маршруте:
+
+```php
+$router
+    ->get('/users', [UserController::class, 'index'])
+    ->middleware(TraceMiddleware::class);
+```
+
+## Исключение middleware
+
+```php
+$router->middleware(AuthMiddleware::class);
+
+$router
+    ->get('/health', static fn (): array => ['ok' => true])
+    ->exceptMiddleware(AuthMiddleware::class);
+```
+
+Исключения применяются на уровне route policy и удаляют соответствующие классы из итогового списка middleware.
 
 ## Порядок выполнения
 
-- middleware оборачиваются в обратном порядке регистрации
-- код до `$next($request)` идёт снаружи внутрь
-- код после `$next($request)` идёт обратно изнутри наружу
+Схема такая:
+
+1. выбираются middleware из global policy и route policy
+2. список разворачивается в цепочку через `array_reverse()`
+3. первый зарегистрированный middleware становится внешним
+4. handler вызывается в самом центре цепочки
 
 Пример:
 
@@ -50,89 +93,45 @@ final class TraceMiddleware implements MiddlewareInterface
 }
 ```
 
-## Семантика возврата
+## Семантика `null`
 
-- если middleware возвращает `HttpResponse`, этот ответ сразу уходит дальше по цепочке
-- если middleware возвращает `null` после вызова `$next`, роутер использует уже полученный downstream-ответ
-- если middleware возвращает `null` и вообще не вызывает `$next`, роутер всё равно сам вызовет следующий middleware или обработчик
+`MiddlewareRunner` поддерживает три сценария:
 
-Из-за последнего правила безопасный базовый шаблон всё равно такой:
+- middleware вернул `HttpResponse` -> ответ уходит дальше по цепочке
+- middleware вызвал `$next()` и вернул `null` -> используется downstream response
+- middleware не вызвал `$next()` и вернул `null` -> runner сам продолжит цепочку
+
+Из-за этого безопасный шаблон остаётся прежним:
 
 ```php
 return $next($request);
 ```
 
-## Подключение
+## Middleware и нормализация ответа
 
-Глобально:
+Если middleware возвращает не `HttpResponse`, результат всё равно проходит через `ResponseNormalizer`.
 
-```php
-$router->withMiddleware([
-    AuthMiddleware::class,
-    TraceMiddleware::class,
-]);
-```
+Это позволяет middleware вернуть:
 
-В группе:
+- `array`
+- DTO/object
+- scalar
 
-```php
-$router->group('/api', static function (Router $router): void {
-    $router->withMiddleware(AuthMiddleware::class);
-    $router->get('/users', UserController::class . '@index');
-});
-```
+но на практике для middleware лучше возвращать именно `HttpResponse`, чтобы поведение было явным.
 
-На маршруте:
+## Когда использовать middleware, а не guard
 
-```php
-$router
-    ->get('/users', UserController::class . '@index')
-    ->withMiddleware(TraceMiddleware::class)
-    ->withoutMiddleware(AuthMiddleware::class);
-```
+Используйте middleware, если нужно:
 
-Практически в `oz.router.sample` используется глобальное подключение post-response middleware:
+- модифицировать response headers
+- логировать время выполнения
+- обернуть handler в cross-cutting logic
+- дополнять JSON-ответ служебными данными
 
-```php
-$router->withMiddleware([
-    Middleware\ResponseMetaMiddleware::class,
-]);
-```
-
-Этот middleware:
-
-- пропускает запрос дальше
-- проверяет, что ответ имеет `Content-Type: application/json`
-- декодирует JSON body
-- добавляет служебный блок `_meta`
-- собирает новый JSON-ответ с тем же HTTP status
-
-## Исключение middleware
-
-- `Router::withoutMiddleware()` работает только внутри `group()`
-- `Route::withoutMiddleware()` исключает middleware для одного маршрута
-
-Порядок отбора такой:
-
-1. глобальные middleware
-2. middleware из активных групп
-3. middleware самого маршрута
-4. исключения на уровне группы и маршрута
-
-## Паттерн авторизации из sample
-
-В `oz.router.sample` есть `AuthorizationMiddleware`, который:
-
-- получает `HttpContext` из DI
-- читает `X-Auth-Token`
-- при невалидном токене возвращает JSON `401`
-
-`CanActivateInterface` теперь используется роутером как встроенный контракт для guards.
-
-Guard-проверки выполняются после матчинга маршрута и построения request container, но до запуска route middleware и handler.
+Используйте guard, если нужно просто разрешить или запретить доступ.
 
 ## See Also
 
-- [Валидация](validation.md) - обработчик уже после резолва и проверки аргументов
-- [Настройки](configuration.md) - параметры встроенных точек входа
-- [Установка и запуск](getting-started.md) - bootstrap и компонент
+- [Guards](guards.md) - проверки доступа до middleware chain
+- [Валидация](validation.md) - что происходит внутри handler arguments resolution
+- [Маршрутизация](routing.md) - lifecycle dispatch и нормализация ответов

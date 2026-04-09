@@ -1,25 +1,20 @@
 # oz.router
 
-
 > [!WARNING]
 > Этот проект находится в активной разработке. Между релизами могут происходить критические изменения.
 
+> Роутер для Bitrix D7 с PHP-DI, группами маршрутов, guards, middleware, гидратацией аргументов и автоматической нормализацией ответа.
 
+`oz.router` сопоставляет текущий `HttpRequest` с маршрутом, собирает request-scoped DI-контейнер, выполняет guards и middleware, вызывает обработчик и преобразует результат в `HttpResponse`.
 
-> Роутер для Bitrix D7 с PHP-DI, middleware, гидратацией аргументов и автоматическими JSON-ответами.
-
-`oz.router` сопоставляет текущий `HttpRequest` с маршрутом по методу и пути, резолвит обработчик через DI-контейнер, валидирует входные аргументы и возвращает `HttpResponse`.
-
-## Быстрый старт
-
-Модуль зависит от пакетов из `composer.json`. В этом проекте они устанавливаются через `local/composer.json` в `/bitrix/vendor`, а автозагрузка подключается в `local/php_interface/init.php`.
+## Quick Start
 
 ```php
 <?php
 
 use Bitrix\Main\Loader;
-use Oz\Router\RouterRunner;
 use Oz\Router\Router;
+use Oz\Router\RouterRunner;
 
 require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_before.php';
 
@@ -35,51 +30,52 @@ $response = (new RouterRunner($router))->run();
 $response->send();
 ```
 
-## Возможности
+## Что есть в модуле
 
-- Маршруты по HTTP-методу и пути, включая динамические сегменты и regex-ограничения
-- Обработчики в форматах `Class@method`, `[ClassName::class, 'method']` и любой `callable`
-- Request-scoped PHP-DI контейнер с `HttpApplication`, `HttpContext`, `HttpRequest` и `route_params`
-- Резолв scalar-типов, enum, DTO-объектов и сервисов в аргументы обработчика
-- Middleware на глобальном уровне, в группах и на отдельных маршрутах
-- RFC 7807 `application/problem+json` для API-ошибок роутера, валидации и пользовательских problem-исключений
-- Генерация OpenAPI-схемы по аннотациям и просмотр в админке Bitrix
+- регистрация маршрутов через `get/post/put/patch/delete/option/any/add`
+- вложенные `group()` с префиксами и наследованием policy
+- guards через `guard()` и `exceptGuard()`
+- middleware через `middleware()` и `exceptMiddleware()`
+- резолв handler arguments из path params, query, form-data и JSON body
+- автосвязывание контроллеров, middleware и guards через PHP-DI
+- валидация параметров и DTO через `Bitrix\Main\Validation\ValidationService`
+- встроенные точки входа для Bitrix component и service
+- генерация OpenAPI-схемы и просмотр через встроенный Swagger UI
 
 ## Точки входа
 
-- Ручной запуск: создать `Router`, зарегистрировать маршруты и выполнить `RouterRunner`
-- Компонент Bitrix: `oz:router.provider`
-- Сервис Bitrix: `/bitrix/services/oz.api/`, который проксирует в `services/api/index.php`
+- ручной bootstrap через `Router` + `RouterRunner`
+- компонент `oz:router.provider`
+- service endpoint `/bitrix/services/oz.api/`
 
 ## Практический пример
 
-В репозитории есть рабочий пример модуля `oz.router.sample`. Он показывает не абстрактный "hello world", а реальный сценарий:
+`oz.router.sample` показывает реальный layout для production-подобного API:
 
-- versioned API через группы `/api/v1`
 - routes в `config/routes/api.php`
-- DI-определения в `config/di.php`
-- CRUD-контроллер с use case-хендлерами
-- request DTO на `Bitrix\Main\Validation\Rule`
-- response DTO с `#[JsonResource]`
-- OpenAPI-атрибуты на контроллере и DTO
-- middleware для авторизации и постобработки JSON-ответа
+- DI definitions в `config/di.php`
+- versioned API через `group('/api/v1', ...)`
+- controller handlers, DTO, guards и middleware
+- OpenAPI-атрибуты рядом с presentation-слоем
 
 ## Документация
 
 | Раздел | Описание |
 |--------|----------|
-| [Установка и запуск](docs/getting-started.md) | Требования, установка, первый маршрут, компонент и сервисный вход |
-| [Маршрутизация](docs/routing.md) | Регистрация маршрутов, форматы обработчиков, резолв аргументов и ответы |
-| [Валидация](docs/validation.md) | Валидация запроса, гидратация DTO и формат ответа `422` |
-| [Middleware](docs/middleware.md) | Интерфейс, порядок выполнения, подключение и исключение middleware |
-| [Настройки](docs/configuration.md) | Опции модуля, runtime-поведение и нюансы OpenAPI/Swagger |
+| [Старт и точки входа](docs/getting-started.md) | Установка, минимальный bootstrap, routes file, component и service endpoint |
+| [Маршрутизация](docs/routing.md) | Методы роутера, группы, handlers, route params, DI и нормализация ответа |
+| [Guards](docs/guards.md) | Контракт guard-классов, порядок выполнения и исключение guards |
+| [Middleware](docs/middleware.md) | Контракт middleware, цепочка выполнения и post-processing ответа |
+| [Валидация](docs/validation.md) | Гидратация DTO, валидация параметров и формат ошибок |
+| [Конфигурация и OpenAPI](docs/configuration.md) | `Module\Config`, настройки модуля, provider/service runtime и caveats Swagger |
 
-## Важно
+## Ключевые caveats
 
-- Встроенный Swagger UI читает JSON-схему, поэтому для вкладки `Swagger` безопаснее указывать файл `.json`
-- Сохранённый путь к DI-конфигу доступен через `Oz\Router\Module\Config`, но встроенные точки входа не подключают его автоматически
-- OpenAPI-аннотации не влияют на runtime-роутинг и HTTP-статусы: это видно в `oz.router.sample`, где документация и фактическое поведение нужно держать синхронно вручную
+- встроенный `oz:router.provider` автоматически пытается подключить `di.php` рядом с routes layout, но не использует сохранённый в настройках путь к DI-файлу
+- `ExceptionHandler` возвращает JSON только при `Accept: application/json`, иначе отвечает простым HTML-телом
+- встроенный Swagger UI безопаснее использовать с `.json`, потому что viewer читает JSON-схему
+- OpenAPI-описание и реальные router paths синхронизируются вручную, runtime их не сверяет
 
 ## Лицензия
 
-Лицензия не указана.
+См. [LICENSE](LICENSE).

@@ -1,12 +1,12 @@
-[← Previous Page](middleware.md) · [Back to README](../README.md)
+[← Previous Page](validation.md) · [Back to README](../README.md)
 
-# Настройки
+# Конфигурация и OpenAPI
 
-## Где хранятся настройки
+## `Oz\Router\Module\Config`
 
-Модуль сохраняет настройки в опциях Bitrix и отдаёт их через `Oz\Router\Module\Config`.
+Настройки модуля хранятся в Bitrix options и доступны через `Oz\Router\Module\Config`.
 
-Доступные getter-методы:
+Основные методы:
 
 ```php
 use Oz\Router\Module\Config;
@@ -19,100 +19,91 @@ $openApiSources = $config->getOpenApiSourses();
 $openApiOutput = $config->getOpenApiSchemaOutput();
 ```
 
-## Поля в админке
+Методы записи:
 
-| Поле | Что хранится | Валидация |
-|------|--------------|-----------|
-| Файл конфигурации маршрутов | путь к читаемому `.php`-файлу | путь должен указывать на существующий PHP-файл |
-| Файл конфигурации DI | путь к читаемому `.php`-файлу | путь должен указывать на существующий PHP-файл |
-| Пути к OpenAPI-источникам | массив файлов и директорий | каждый путь должен существовать |
-| Путь сохранения OpenAPI-схемы | путь с расширением `.json`, `.yaml` или `.yml` | проверяется только расширение |
+- `setConfigRoutesFilePath(string $path)`
+- `setConfigDIFilePath(string $path)`
+- `setOpenApiSources(array $paths)`
+- `setOpenApiSchemaOutput(string $path)`
 
-## Runtime-поведение
-
-Не каждая сохранённая настройка одинаково используется в рантайме.
+## Что реально используется в runtime
 
 | Настройка | Где используется | Комментарий |
-|-----------|------------------|-------------|
-| Файл конфигурации маршрутов | `services/api/index.php` и `oz:router.provider` | основная runtime-настройка |
-| Файл конфигурации DI | доступен только через `Config` | встроенные точки входа не загружают его автоматически |
-| Пути к OpenAPI-источникам | генератор OpenAPI в админке | сканируются `OpenApiGenerator` |
-| Путь сохранения OpenAPI-схемы | генератор OpenAPI и вкладка Swagger | генератор умеет писать JSON и YAML |
+|----------|------------------|-------------|
+| Путь к routes file | `services/api/index.php` | основная runtime-настройка для service endpoint |
+| Путь к DI file | хранится в options | встроенный provider его не использует напрямую |
+| OpenAPI source paths | `Module\Service\OpenApiGenerator` | используются при ручной генерации схемы |
+| OpenAPI output path | `Module\Service\OpenApiGenerator` и Swagger view | влияет на место сохранения и чтение схемы |
 
 ## Важный нюанс про DI
 
-Сохранённый путь к DI-конфигу сейчас не используется встроенными runtime-точками входа.
+Сохранённый `configDIFilePath` не участвует во встроенном runtime bootstrap.
 
-Что происходит фактически:
+Фактическое поведение такое:
 
-- `services/api/index.php` передаёт в `oz:router.provider` только `ROUTES_FILE_PATH`
-- `oz:router.provider` пытается угадать DI-конфиг по правилу `dirname(dirname(ROUTES_FILE_PATH)) . '/di.php'`
+1. `services/api/index.php` берёт только путь к routes file
+2. `oz:router.provider` вычисляет DI-файл как `dirname(dirname(routesFile)) . '/di.php'`
+3. если этот файл существует, definitions загружаются автоматически
 
-Если нужен другой DI-файл, есть два практичных варианта:
+Если нужен другой layout, есть два практичных варианта:
 
-- собирать `Router` вручную и передавать определения в `new Router($definitions)`
-- или держать структуру файлов совместимой с правилом автопоиска компонента
+- собирать `Router` вручную и передавать definitions в конструктор
+- придерживаться layout `config/routes/*.php` + `config/di.php`
 
-## Генерация OpenAPI
+## OpenAPI generator
 
-Экран OpenAPI в админке использует `Oz\Router\Module\Service\OpenApiGenerator`.
+`Oz\Router\Module\Service\OpenApiGenerator`:
 
-Порядок работы такой:
+1. резолвит source paths относительно `DOCUMENT_ROOT`
+2. проверяет наличие `OpenApi\Generator`
+3. сканирует файлы и директории
+4. сериализует схему в JSON или YAML
+5. пишет результат в output path
 
-1. каждый путь к источнику резолвится относительно `DOCUMENT_ROOT`
-2. проверяется наличие `OpenApi\Generator` в Composer autoload
-3. сканируются указанные файлы и директории
-4. схема записывается в целевой путь
+Поддерживаются расширения:
 
-При необходимости генератор пытается создать отсутствующие директории назначения.
+- `.json`
+- `.yaml`
+- `.yml`
 
-## Ограничение Swagger UI
+## Swagger UI caveat
 
-Встроенный компонент `oz:swagger.ui` читает схему как JSON.
+Встроенный viewer ориентирован на JSON-схему. Поэтому для вкладки Swagger безопаснее указывать `.json`.
 
-Из этого следует:
+YAML можно генерировать, но встроенный UI не стоит считать надёжным потребителем `.yaml/.yml`.
 
-- `.json` - безопасный формат для встроенной вкладки `Swagger`
-- `.yaml` и `.yml` можно сгенерировать, но встроенный viewer их не парсит
+## OpenAPI не управляет runtime
 
-## Пример настроек
+OpenAPI-атрибуты и реальные маршруты живут отдельно.
 
-Для стандартного сценария со встроенным сервисом и компонентом удобно использовать:
+Роутер:
+
+- не синхронизирует paths из `group()`
+- не выставляет HTTP status по OpenAPI-описанию
+- не проверяет, что аннотации соответствуют handler
+
+Поэтому при изменении runtime routes нужно отдельно обновлять OpenAPI-атрибуты.
+
+## Формат ошибок встроенных entrypoints
+
+Для API-клиента важно помнить:
+
+- JSON-ошибки возвращаются только при `Accept: application/json`
+- иначе `ExceptionHandler` отдаёт HTML-тело с текстом ошибки
+
+Это касается и service endpoint, и ручного запуска через `RouterRunner`.
+
+## Практический набор настроек
 
 ```text
-Файл маршрутов:      /local/php_interface/api/routes.php
-Файл DI:             /local/php_interface/di.php
-OpenAPI источники:   /local/php_interface/api
-OpenAPI output:      /local/php_interface/openapi/openapi.json
+Файл маршрутов:    /local/modules/oz.router.sample/config/routes/api.php
+Файл DI:           /local/modules/oz.router.sample/config/di.php
+OpenAPI sources:   /local/modules/oz.router.sample/lib
+OpenAPI output:    /local/modules/oz.router.sample/openapi/openapi.json
 ```
-
-Практический layout из `oz.router.sample`:
-
-```text
-Файл маршрутов:      /local/modules/oz.router.sample/config/routes/api.php
-Файл DI:             /local/modules/oz.router.sample/config/di.php
-OpenAPI источники:   пути, охватывающие /local/modules/oz.router.sample/lib/Product/Presentation
-```
-
-По коду sample именно в `Product/Presentation` лежат:
-
-- OpenAPI-атрибуты контроллера
-- request DTO-схемы
-- response DTO-схемы
-
-## OpenAPI и синхронизация с runtime
-
-Практика sample показывает ещё одно важное правило: OpenAPI-пути и реальные router-path должны поддерживаться синхронно вручную.
-
-Причина:
-
-- маршруты строятся из `group('/api/v1')` + `group('/product')`
-- OpenAPI-описание задаётся отдельно атрибутами `#[OA\Get]`, `#[OA\Post]` и т.д.
-
-Роутер не проверяет, совпадают ли эти два источника. Если префиксы изменились в маршрутах, аннотации тоже нужно обновлять вручную.
 
 ## See Also
 
-- [Установка и запуск](getting-started.md) - как стартуют встроенные точки входа
-- [Маршрутизация](routing.md) - загрузка маршрутов из файла и сборка request-контейнера
-- [Валидация](validation.md) - поведение валидации при dispatch
+- [Старт и точки входа](getting-started.md) - provider, service endpoint и bootstrap
+- [Маршрутизация](routing.md) - `loadRoutesFromFile()` и request container
+- [Guards](guards.md) - policy-модель маршрутов

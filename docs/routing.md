@@ -1,4 +1,4 @@
-[← Previous Page](getting-started.md) · [Back to README](../README.md) · [Next Page →](validation.md)
+[← Previous Page](getting-started.md) · [Back to README](../README.md) · [Next Page →](guards.md)
 
 # Маршрутизация
 
@@ -10,119 +10,101 @@ $router->post('/users', [UserController::class, 'store']);
 $router->put('/users/{id}', UserController::class . '@update');
 $router->patch('/users/{id}', UserController::class . '@patch');
 $router->delete('/users/{id}', UserController::class . '@delete');
-$router->option('/options', static fn () => 'ok'); // matches the HTTP OPTIONS method
-$router->any('/health', static fn () => 'ok');
+$router->option('/options', static fn (): string => 'ok');
+$router->any('/health', static fn (): string => 'ok');
 
 $router->add(['GET', 'POST'], '/import', ImportController::class . '@run');
 ```
 
-Путь нормализуется к виду с ведущим слешем, поэтому `'users'`, `'/users'` и `'/users/'` считаются одним и тем же маршрутом.
-
-## Форматы обработчиков
-
-Поддерживаются:
+Поддерживаются handler-форматы:
 
 - `Class@method`
 - `[ClassName::class, 'method']`
 - любой `callable`
 
+## Нормализация path и method
+
+- пути приводятся к каноническому виду с ведущим `/`
+- `users`, `/users` и `/users/` считаются одним маршрутом
+- HTTP method нормализуется через `strtoupper(trim(...))`
+- пустой или невалидный method приводит к `400 Bad Request`
+
+## Динамические сегменты
+
+Поддерживаются:
+
+- `/products/{id}`
+- `/users/{id:\d+}`
+
+Пример:
+
 ```php
-$router->get('/a', UserController::class . '@show');
-$router->get('/b', [UserController::class, 'show']);
-$router->get('/c', static fn () => 'ok');
+$router->get('/users/{id:\d+}', [UserController::class, 'show']);
 ```
 
-Строковые и массивные обработчики резолвятся через request-scoped DI-контейнер.
+После совпадения path-параметры URL-декодируются и попадают в handler arguments и в DI под ключом `'route_params'`.
 
-## Динамические параметры
-
-- `/products/{id}` - именованный параметр
-- `/users/{id:\d+}` - именованный параметр с regex-ограничением
-
-```php
-$router->get('/users/{id:\d+}', UserController::class . '@show');
-```
-
-Параметры пути URL-декодируются перед передачей в обработчик.
-
-## Группы и префиксы
+## Группы
 
 ```php
 $router->group('/api', static function (Router $router): void {
-    $router->get('/ping', static fn () => ['scope' => 'api']);
+    $router->get('/ping', static fn (): array => ['scope' => 'api']);
 
     $router->group('/v1', static function (Router $router): void {
-        $router->get('/users', static fn () => ['version' => 'v1']);
+        $router->get('/users', static fn (): array => ['version' => 'v1']);
     });
 });
 ```
 
-Вложенные группы автоматически объединяют префиксы. В примере выше будут созданы `/api/ping` и `/api/v1/users`.
+В результате будут зарегистрированы:
 
-Практический пример из `oz.router.sample`:
+- `GET /api/ping`
+- `GET /api/v1/users`
 
-```php
-$router->group('/api/v1', static function (Router $router): void {
-    $router->group('/product', static function (Router $router): void {
-        $router->get('/{id}', [ProductController::class, 'getProduct']);
-        $router->post('/', [ProductController::class, 'createProduct']);
-        $router->put('/{id}', [ProductController::class, 'updateProduct']);
-        $router->delete('/{id}', [ProductController::class, 'deleteProduct']);
-    });
-});
-```
+`group()` объединяет не только path prefix, но и накопленную policy для guards и middleware.
 
-Это даёт компактное versioning-дерево без ручной конкатенации строк:
-
-- `GET /api/v1/product/{id}`
-- `POST /api/v1/product/`
-- `PUT /api/v1/product/{id}`
-- `DELETE /api/v1/product/{id}`
-
-## Маршруты из файла
-
-Маршруты можно вынести в отдельный PHP-файл:
+## Routes из файла
 
 ```php
-$router->loadRoutesFromFile(__DIR__ . '/routes.php');
+$router->loadRoutesFromFile(__DIR__ . '/routes/api.php');
 ```
 
-Файл может возвращать:
+`RoutesFileLoader` проверяет:
 
-- один `callable`, принимающий `Router`
-- массив `callable`, где каждый принимает `Router`
+- путь не пустой
+- файл существует
+- файл читается
+- каждая запись в массиве loaders является `callable`
 
-```php
-<?php
+## Request-scoped container
 
-use Oz\Router\Router;
+На каждый совпавший маршрут создаётся новый контейнер через `RequestContainerFactory`.
 
-return static function (Router $router): void {
-    $router->get('/ping', static fn (): array => ['status' => 'ok']);
-};
-```
-
-## Request DI-контейнер
-
-Для каждого совпавшего запроса роутер собирает новый PHP-DI контейнер и регистрирует в нём:
+В контейнер автоматически регистрируются:
 
 - `Bitrix\Main\HttpApplication`
 - `Bitrix\Main\HttpContext`
 - `Bitrix\Main\HttpRequest`
-- `'route_params'` с параметрами маршрута
+- `'route_params'`
+- пользовательские definitions из `new Router($definitions)`
 
-Собственные определения можно передать в `new Router($definitions)`.
+Это позволяет автосвязывать:
 
-## Резолв аргументов обработчика
+- контроллеры
+- сервисы
+- middleware
+- guards
 
-Входные данные для обработчика собираются из:
+## Резолв аргументов handler
 
-1. query-параметров
-2. `POST`-данных формы
-3. JSON-body
-4. параметров маршрута
+Входные данные собираются в таком порядке:
 
-Каждый следующий источник перекрывает предыдущий, поэтому приоритет у параметров маршрута.
+1. query-параметры
+2. `POST`-данные
+3. JSON body
+4. параметры маршрута
+
+Поздние источники перекрывают ранние, поэтому path params имеют максимальный приоритет.
 
 Резолвер поддерживает:
 
@@ -140,101 +122,81 @@ final class ShowUserQuery
 {
     public function __construct(
         public readonly bool $withPosts = false,
-    ) {
-    }
+    ) {}
 }
 
 final class UserController
 {
-    public function __construct(private readonly UserService $service)
-    {
-    }
+    public function __construct(
+        private readonly UserService $service
+    ) {}
 
-    public function show(HttpRequest $request, int $id, ShowUserQuery $query): array
+    public function show(int $id, ShowUserQuery $query): array
     {
-        return [
-            'method' => $request->getRequestMethod(),
-            'user' => $this->service->find($id, $query->withPosts),
-        ];
+        return $this->service->find($id, $query->withPosts);
     }
 }
 ```
 
-На практике из `oz.router.sample` это выглядит так:
+## Порядок dispatch
 
-```php
-public function updateProduct(
-    int $id,
-    Req\UpdateProductReq $req
-): void
-{
-    $this->updateProduct->exec(new UpdateProduct\Command(
-        id: $id,
-        name: $req->name,
-        code: $req->code,
-        price: $req->price,
-        sort: $req->sort
-    ));
-}
-```
+`Router::dispatch()` работает так:
 
-Здесь:
+1. извлекает method и path
+2. находит совпавший `Route`
+3. создаёт request container
+4. выполняет guards
+5. выполняет middleware chain
+6. вызывает handler
+7. нормализует результат в `HttpResponse`
 
-- `int $id` приходит из path-параметра `/{id}`
-- `UpdateProductReq $req` гидратируется из JSON-body
-- application handler и его зависимости приходят из DI-контейнера
+Если маршрут не найден:
 
-## Ответы
+- `404 Not Found`, если path неизвестен
+- `405 Method Not Allowed`, если path найден, но method не совпал
 
-Результат обработчика нормализуется так:
+## Нормализация ответа
 
-- `HttpResponse` и его наследники возвращаются как есть
-- `array` и `object` превращаются в JSON-ответ
-- scalar-значения и `null` становятся текстовым содержимым ответа
+`ResponseNormalizer` обрабатывает результат handler или middleware так:
 
-Для объектов управляемая сериализация лучше всего работает, если объект:
+- `HttpResponse` возвращается как есть
+- `array` и `object` превращаются в `Bitrix\Main\Engine\Response\Json`
+- scalar и `null` становятся телом обычного `HttpResponse`
+
+Для объектов сериализация работает лучше всего, если объект:
 
 - реализует `JsonSerializable`
 - реализует `Bitrix\Main\Type\Contract\Arrayable`
-- или помечен атрибутом `#[Oz\Router\Attribute\JsonResource]`
+- или помечен `#[Oz\Router\Attribute\JsonResource]`
 
-Практический паттерн из `oz.router.sample`:
+Пример DTO-ответа:
 
 ```php
+use Oz\Router\Attribute\JsonResource;
+
 #[JsonResource]
-final class ProductCreatedRes
+final class ProductRes
 {
     public function __construct(
-        public readonly int $id
+        public readonly int $id,
+        public readonly string $name,
     ) {}
 }
 ```
 
-Контроллер может вернуть такой DTO напрямую, а роутер сам сериализует его в JSON.
+## Формат ошибок
 
-## OpenAPI и реальные статусы
+`RouterRunner` перехватывает все исключения и передаёт их в `ExceptionHandler`.
 
-`oz.router.sample` показывает важный нюанс: OpenAPI-атрибуты описывают контракт, но не управляют runtime-поведением.
+Поведение зависит от `Accept`:
 
-Например:
+- `application/json` -> JSON c `statusCode`, `message` и при необходимости `errors`
+- всё остальное -> HTML-ответ с текстом ошибки
 
-- `createProduct()` в sample задокументирован как `201`
-- фактически метод возвращает DTO-объект без `setStatus(201)`
-- значит runtime-ответ останется стандартным `200`
-
-То же касается `void`-методов `updateProduct()` и `deleteProduct()`: без явного `HttpResponse` они завершатся обычным ответом со статусом `200`.
-
-Если нужен точный HTTP status, возвращайте `HttpResponse` вручную.
-
-Ещё один практический caveat из sample: OpenAPI `path` в аннотациях должен синхронизироваться с реальными group-prefixes вручную. Роутер не сверяет их между собой.
-
-## Ответы по умолчанию
-
-- `404 Not Found` - путь не найден
-- `405 Method Not Allowed` - путь найден, но для другого метода
+Это важно для API: чтобы получать JSON-ошибки стабильно, клиент должен отправлять `Accept: application/json`.
 
 ## See Also
 
-- [Установка и запуск](getting-started.md) - bootstrap, компонент и сервисный вход
-- [Валидация](validation.md) - правила валидации и ответы `422`
-- [Middleware](middleware.md) - выполнение middleware вокруг обработчика
+- [Старт и точки входа](getting-started.md) - bootstrap и встроенные entrypoints
+- [Guards](guards.md) - контроль доступа до middleware и handler
+- [Валидация](validation.md) - DTO, validation rules и ответы `422`
