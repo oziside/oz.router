@@ -1,13 +1,13 @@
 <?php
 declare(strict_types=1);
-namespace Oz\Router\Middleware;
+namespace Oz\Router\Guard;
 
 use Oz\Router\Routing\{
     Route,
     RoutePolicy
 };
 
-final class MiddlewareSelector
+final class GuardSelector
 {
     public function select(
         RoutePolicy $globalPolicy,
@@ -17,12 +17,12 @@ final class MiddlewareSelector
         $routePolicy = $route->getPolicy();
 
         $classes = array_values(array_unique(array_merge(
-            $globalPolicy->middlewares()->included(),
-            $routePolicy->middlewares()->included()
+            $globalPolicy->guards()->included(),
+            $routePolicy->guards()->included()
         )));
 
         $excluded = array_flip(
-            $routePolicy->middlewares()->excluded()
+            $routePolicy->guards()->excluded()
         );
 
         return array_values(array_filter(

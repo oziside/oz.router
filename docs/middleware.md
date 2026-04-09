@@ -127,9 +127,9 @@ $router->withMiddleware([
 - читает `X-Auth-Token`
 - при невалидном токене возвращает JSON `401`
 
-Также он реализует `CanActivateInterface`, но важно понимать: сам роутер этот интерфейс не вызывает автоматически.
+`CanActivateInterface` теперь используется роутером как встроенный контракт для guards.
 
-То есть `CanActivateInterface` сейчас можно использовать как внутренний паттерн организации кода внутри middleware, а не как отдельный встроенный lifecycle hook.
+Guard-проверки выполняются после матчинга маршрута и построения request container, но до запуска route middleware и handler.
 
 ## See Also
 
