@@ -24,11 +24,6 @@ $aMenu = [
                 "url"   => "oz_router_router.php?view=settings&lang=".LANGUAGE_ID,
                 "text"  => Loc::getMessage("OZ_ROUTER_ADMIN_MENU_SETTINGS_TEXT"),
                 "title" => Loc::getMessage("OZ_ROUTER_ADMIN_MENU_SETTINGS_TITLE"),
-            ],
-            [
-                "url"   => "oz_router_router.php?view=swagger&lang=".LANGUAGE_ID,
-                "text"  => Loc::getMessage("OZ_ROUTER_ADMIN_MENU_SWAGGER_TEXT"),
-                "title" => Loc::getMessage("OZ_ROUTER_ADMIN_MENU_SWAGGER_TITLE"),
             ]
         ]
     ]

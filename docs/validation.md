@@ -139,4 +139,4 @@ final class UpdateProductReq
 
 - [Маршрутизация](routing.md) - как input попадает в handler arguments
 - [Middleware](middleware.md) - lifecycle вокруг вызова handler
-- [Конфигурация и OpenAPI](configuration.md) - настройки модуля и caveats встроенных инструментов
+- [Конфигурация](configuration.md) - настройки модуля и caveats встроенных инструментов

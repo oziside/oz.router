@@ -8,7 +8,6 @@
 - Bitrix D7
 - зависимости из `composer.json` модуля:
   - `php-di/php-di`
-  - `zircote/swagger-php`
 
 В текущем проекте autoload обычно подключается через `local/php_interface/init.php`.
 
@@ -154,4 +153,4 @@ $APPLICATION->IncludeComponent('oz:router.provider', '', [
 
 - [Маршрутизация](routing.md) - методы роутера, группы и обработчики
 - [Guards](guards.md) - предобработка доступа до middleware и handler
-- [Конфигурация и OpenAPI](configuration.md) - настройки модуля и runtime caveats
+- [Конфигурация](configuration.md) - настройки модуля и runtime caveats

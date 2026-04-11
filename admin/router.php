@@ -27,8 +27,7 @@ $request 	= $context->getRequest();
 $view = $request->getQuery('view');
 
 $routes = [
-	'settings' => new Routes\SettingsRoute,
-	'swagger'  => new Routes\SwaggerRoute
+	'settings' => new Routes\SettingsRoute
 ];
 
 $route   = $routes[$view] ?? null;

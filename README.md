@@ -40,7 +40,6 @@ $response->send();
 - автосвязывание контроллеров, middleware и guards через PHP-DI
 - валидация параметров и DTO через `Bitrix\Main\Validation\ValidationService`
 - встроенные точки входа для Bitrix component и service
-- генерация OpenAPI-схемы и просмотр через встроенный Swagger UI
 
 ## Точки входа
 
@@ -56,7 +55,6 @@ $response->send();
 - DI definitions в `config/di.php`
 - versioned API через `group('/api/v1', ...)`
 - controller handlers, DTO, guards и middleware
-- OpenAPI-атрибуты рядом с presentation-слоем
 
 ## Документация
 
@@ -67,14 +65,12 @@ $response->send();
 | [Guards](docs/guards.md) | Контракт guard-классов, порядок выполнения и исключение guards |
 | [Middleware](docs/middleware.md) | Контракт middleware, цепочка выполнения и post-processing ответа |
 | [Валидация](docs/validation.md) | Гидратация DTO, валидация параметров и формат ошибок |
-| [Конфигурация и OpenAPI](docs/configuration.md) | `Module\Config`, настройки модуля, provider/service runtime и caveats Swagger |
+| [Конфигурация](docs/configuration.md) | `Module\Config`, настройки модуля и provider/service runtime |
 
 ## Ключевые caveats
 
 - встроенный `oz:router.provider` автоматически пытается подключить `di.php` рядом с routes layout, но не использует сохранённый в настройках путь к DI-файлу
 - `ExceptionHandler` возвращает JSON только при `Accept: application/json`, иначе отвечает простым HTML-телом
-- встроенный Swagger UI безопаснее использовать с `.json`, потому что viewer читает JSON-схему
-- OpenAPI-описание и реальные router paths синхронизируются вручную, runtime их не сверяет
 
 ## Лицензия
 
