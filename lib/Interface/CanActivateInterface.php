@@ -2,9 +2,7 @@
 declare(strict_types=1);
 namespace Oz\Router\Interface;
 
-use Bitrix\Main\{
-    HttpContext
-};
+use Oz\Router\Guard\GuardContext;
 
 
 interface CanActivateInterface
@@ -13,9 +11,9 @@ interface CanActivateInterface
      * Предоставляет доступ к деталям 
      * текущего контекста обработки запроса.
      * 
-     * @param HttpContext $ctx - текущий контекст выполнения. 
+     * @param GuardContext $context - текущий контекст выполнения.
      *
      * @return bool - разрешено ли продолжение текущего запроса.
     */
-    public function canActivate(HttpContext $ctx): bool;
+    public function canActivate(GuardContext $context): bool;
 }

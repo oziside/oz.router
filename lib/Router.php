@@ -11,17 +11,20 @@ use Bitrix\Main\{
 };
 use Oz\Router\Http\Exception;
 
+use Oz\Router\Guard\GuardContext;
+use Oz\Router\Guard\GuardResolver;
+use Oz\Router\Guard\GuardRunner;
+use Oz\Router\Guard\GuardSelector;
 use Oz\Router\Http\HandlerInvoker;
 use Oz\Router\Http\RequestContainerFactory;
 use Oz\Router\Http\ResponseNormalizer;
-use Oz\Router\Middleware\MiddlewareNormalizer;
-use Oz\Router\Middleware\MiddlewareRegistry;
 use Oz\Router\Middleware\MiddlewareResolver;
 use Oz\Router\Middleware\MiddlewareRunner;
 use Oz\Router\Middleware\MiddlewareSelector;
 use Oz\Router\Routing\Path;
 use Oz\Router\Routing\Route;
 use Oz\Router\Routing\RouteCollection;
+use Oz\Router\Routing\RoutePolicy;
 use Oz\Router\Routing\RouteRegistrar;
 use Oz\Router\Routing\RouteGroup;
 
@@ -31,12 +34,13 @@ final class Router
     private RouteCollection $routes;
     private array $definitions;
 
-    private MiddlewareNormalizer $middlewareNormalizer;
-
     private RouteGroup $routeGroup;
     private RouteRegistrar $routeRegistrar;
 
-    private MiddlewareRegistry $middlewareRegistry;
+    private RoutePolicy $globalPolicy;
+    private GuardSelector $guardSelector;
+    private GuardResolver $guardResolver;
+    private GuardRunner $guardRunner;
     private MiddlewareSelector $middlewareSelector;
     private MiddlewareResolver $middlewareResolver;
     private MiddlewareRunner $middlewareRunner;
@@ -54,16 +58,17 @@ final class Router
         $this->routes      = new RouteCollection();
         $this->definitions = $definitions;
 
-        $this->middlewareNormalizer = new MiddlewareNormalizer();
-
         $this->routeGroup = new RouteGroup();
         $this->routeRegistrar = new RouteRegistrar(
             $this->routes,
             $this->routeGroup
         );
 
-        $this->middlewareRegistry = new MiddlewareRegistry();
-        $this->middlewareSelector = new MiddlewareSelector($this->middlewareRegistry);
+        $this->globalPolicy = new RoutePolicy();
+        $this->guardSelector = new GuardSelector();
+        $this->guardResolver = new GuardResolver();
+        $this->guardRunner = new GuardRunner();
+        $this->middlewareSelector = new MiddlewareSelector();
         $this->responseNormalizer = new ResponseNormalizer();
         $this->middlewareResolver = new MiddlewareResolver();
         $this->middlewareRunner = new MiddlewareRunner($this->responseNormalizer);
@@ -245,7 +250,27 @@ final class Router
             $routeParams
         );
 
-        $effectiveMiddlewares = $this->middlewareSelector->select($route);
+        $guardContext = new GuardContext(
+            $application,
+            $context,
+            $request,
+            $route,
+            $routeParams,
+            $container,
+        );
+
+        $effectiveGuards = $this->guardSelector->select(
+            $this->globalPolicy,
+            $route
+        );
+        $resolvedGuards = $this->guardResolver->resolve($effectiveGuards, $container);
+
+        $this->guardRunner->run($resolvedGuards, $guardContext);
+
+        $effectiveMiddlewares = $this->middlewareSelector->select(
+            $this->globalPolicy,
+            $route
+        );
         $resolvedMiddlewares = $this->middlewareResolver->resolve($effectiveMiddlewares, $container);
 
         $destination = function (HttpRequest $request) use ($route, $container, $routeParams): HttpResponse
@@ -331,31 +356,46 @@ final class Router
         return $this;
     }
 
-    public function withMiddleware(string|array $middleware): self
+    public function middleware(
+        string|array $middlewares
+    ): self
     {
-        $classes = $this->middlewareNormalizer->normalizeClasses($middleware);
+        $policy = $this->resolveTargetPolicy();
 
-        if ($this->routeGroup->isInsideGroup())
-        {
-            $this->routeGroup->addGroupMiddlewares($classes);
-        }
-        else
-        {
-            $this->middlewareRegistry->add($classes);
-        }
+        $policy->middlewares()->add($middlewares);
 
         return $this;
     }
 
-    public function withoutMiddleware(string|array $middleware): self
+    public function guard(
+        string|array $guards
+    ): self
     {
-        if (!$this->routeGroup->isInsideGroup())
-        {
-            return $this;
-        }
+        $policy = $this->resolveTargetPolicy();
 
-        $classes = $this->middlewareNormalizer->normalizeClasses($middleware);
-        $this->routeGroup->addGroupWithoutMiddlewares($classes);
+        $policy->guards()->add($guards);
+
+        return $this;
+    }
+
+    public function exceptMiddleware(
+        string|array $middlewares
+    ): self
+    {
+        $policy = $this->resolveTargetPolicy();
+
+        $policy->middlewares()->except($middlewares);
+        
+        return $this;
+    }
+
+    public function exceptGuard(
+        string|array $guards
+    ): self
+    {
+        $policy = $this->resolveTargetPolicy();
+
+        $policy->guards()->except($guards);
 
         return $this;
     }
@@ -365,5 +405,15 @@ final class Router
         RoutesFileLoader::load($filePath, $this);
 
         return $this;
+    }
+
+    private function resolveTargetPolicy(): RoutePolicy
+    {
+        if ($this->routeGroup->isInsideGroup())
+        {
+            return $this->routeGroup->currentPolicy();
+        }
+
+        return $this->globalPolicy;
     }
 }

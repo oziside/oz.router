@@ -7,10 +7,8 @@ use Bitrix\Main\Config\Option;
 
 final class Config
 {
-    private const PATH_ROUTES_FILE     = "path_config_routes_file";
-    private const PATH_DI_CONFIG_FILE  = "path_config_di_file";
-    private const OPENAPI_SOURCE_PATHS = "openapi_sources_paths";
-    private const OPENAPI_SCHEME_PATH  = "openapi_scheme_path";
+    private const PATH_ROUTES_FILE    = "path_config_routes_file";
+    private const PATH_DI_CONFIG_FILE = "path_config_di_file";
 
 
     /**
@@ -66,57 +64,6 @@ final class Config
     {
         return $this->get(self::PATH_DI_CONFIG_FILE);
     }
-
-
-    /**
-     * Устанавливает список путей 
-     * до источников OpenAPI
-     * 
-     * @param string[] $paths
-     * 
-     * @return void
-    */
-    public function setOpenApiSources(array $paths): void
-    {
-        $this->set(self::OPENAPI_SOURCE_PATHS, serialize($paths));
-    }
-
-
-    /**
-     * Возвращает список путей 
-     * до источников OpenAPI
-     * 
-     * @return string[]
-    */
-    public function getOpenApiSourses(): array
-    {
-        return unserialize($this->get(self::OPENAPI_SOURCE_PATHS))?:[];
-    }
-
-
-    /**
-     * Устанавливает путь сохранения OpenAPI схемы
-     * 
-     * @param string $path
-     * 
-     * @return void
-    */
-    public function setOpenApiSchemaOutput(string $path): void
-    {    
-        $this->set(self::OPENAPI_SCHEME_PATH, trim($path));
-    }
-
-
-    /**
-     * Возвращает путь сохранения OpenAPI схемы
-     * 
-     * @return string
-    */
-    public function getOpenApiSchemaOutput(): string
-    {
-        return $this->get(self::OPENAPI_SCHEME_PATH);
-    }
-
 
     /**
      * Установка значения в настройки модуля

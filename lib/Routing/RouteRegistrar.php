@@ -28,9 +28,9 @@ final class RouteRegistrar
 
         $route = new Route($arrMethods, $fullPath, $handler);
 
-        $route
-            ->withMiddleware($this->routeGroup->getCurrentMiddlewares())
-            ->withoutMiddleware($this->routeGroup->getCurrentWithoutMiddlewares());
+        $route->applyPolicy(
+            $this->routeGroup->effectivePolicy()
+        );
 
         
         $this->routes->add($route);

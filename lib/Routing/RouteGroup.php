@@ -4,15 +4,16 @@ namespace Oz\Router\Routing;
 
 final class RouteGroup
 {
-    private array $prefixes;
-    private array $groupMiddlewares;
-    private array $groupWithoutMiddlewares;
+    private array $scopes;
 
     public function __construct()
     {
-        $this->prefixes = ['/'];
-        $this->groupMiddlewares = [[]];
-        $this->groupWithoutMiddlewares = [[]];
+        $this->scopes = [
+            [
+                'prefix' => '/',
+                'policy' => new RoutePolicy(),
+            ],
+        ];
     }
 
     public function push(string $prefix): void
@@ -20,26 +21,25 @@ final class RouteGroup
         $currentPrefix = $this->getCurrentPrefix();
         $nextPrefix = $this->joinPaths($currentPrefix, $prefix);
 
-        $this->prefixes[] = $nextPrefix;
-        $this->groupMiddlewares[] = [];
-        $this->groupWithoutMiddlewares[] = [];
+        $this->scopes[] = [
+            'prefix' => $nextPrefix,
+            'policy' => new RoutePolicy(),
+        ];
     }
 
     public function pop(): void
     {
-        if (count($this->prefixes) <= 1)
+        if (count($this->scopes) <= 1)
         {
             return;
         }
 
-        array_pop($this->prefixes);
-        array_pop($this->groupMiddlewares);
-        array_pop($this->groupWithoutMiddlewares);
+        array_pop($this->scopes);
     }
 
     public function isInsideGroup(): bool
     {
-        return count($this->prefixes) > 1;
+        return count($this->scopes) > 1;
     }
 
     public function resolvePath(string $path): string
@@ -47,61 +47,48 @@ final class RouteGroup
         return $this->joinPaths($this->getCurrentPrefix(), $path);
     }
 
-    public function addGroupMiddlewares(array $classes): void
+    public function currentPolicy(): RoutePolicy
     {
-        $index = array_key_last($this->groupMiddlewares);
+        $index = array_key_last($this->scopes);
+
         if ($index === null)
         {
-            return;
+            return new RoutePolicy();
         }
 
-        $this->groupMiddlewares[$index] = array_values(array_unique(array_merge(
-            $this->groupMiddlewares[$index],
-            $classes
-        )));
+        $policy = $this->scopes[$index]['policy'] ?? null;
+
+        if ($policy instanceof RoutePolicy)
+        {
+            return $policy;
+        }
+
+        return new RoutePolicy();
     }
 
-    public function addGroupWithoutMiddlewares(array $classes): void
+    public function effectivePolicy(): RoutePolicy
     {
-        $index = array_key_last($this->groupWithoutMiddlewares);
-        if ($index === null)
+        $policy = new RoutePolicy();
+
+        foreach ($this->scopes as $scope)
         {
-            return;
+            $scopePolicy = $scope['policy'] ?? null;
+
+            if ($scopePolicy instanceof RoutePolicy)
+            {
+                $policy->merge($scopePolicy);
+            }
         }
 
-        $this->groupWithoutMiddlewares[$index] = array_values(array_unique(array_merge(
-            $this->groupWithoutMiddlewares[$index],
-            $classes
-        )));
-    }
-
-    public function getCurrentMiddlewares(): array
-    {
-        $merged = [];
-
-        foreach ($this->groupMiddlewares as $middlewares)
-        {
-            $merged = array_merge($merged, $middlewares);
-        }
-
-        return array_values(array_unique($merged));
-    }
-
-    public function getCurrentWithoutMiddlewares(): array
-    {
-        $merged = [];
-
-        foreach ($this->groupWithoutMiddlewares as $middlewares)
-        {
-            $merged = array_merge($merged, $middlewares);
-        }
-
-        return array_values(array_unique($merged));
+        return $policy;
     }
 
     private function getCurrentPrefix(): string
     {
-        $last = end($this->prefixes);
+        $lastScope = end($this->scopes);
+        $last = is_array($lastScope)
+            ? ($lastScope['prefix'] ?? null)
+            : null;
 
         if (!is_string($last) || $last === '')
         {

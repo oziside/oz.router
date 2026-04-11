@@ -1,25 +1,17 @@
 [Back to README](../README.md) · [Next Page →](routing.md)
 
-# Установка и запуск
+# Старт и точки входа
 
 ## Требования
 
-- PHP `>= 8.4`
-- Bitrix D7 с классами `Bitrix\Main\*`
-- Composer-зависимости из `composer.json`:
+- PHP `>= 8.1`
+- Bitrix D7
+- зависимости из `composer.json` модуля:
   - `php-di/php-di`
-  - `symfony/validator`
-  - `zircote/swagger-php`
 
-В этом репозитории пакеты ставятся в `/bitrix/vendor`, а автозагрузка подключается через `local/php_interface/init.php`.
+В текущем проекте autoload обычно подключается через `local/php_interface/init.php`.
 
-## Установка
-
-1. Разместите модуль в `local/modules/oz.router` или подключите его как пакет типа `bitrix-d7-module`.
-2. Установите Composer-зависимости проекта.
-3. Убедитесь, что `/bitrix/vendor/autoload.php` подключается до выполнения кода роутера.
-4. Установите модуль в административной панели Bitrix.
-5. Подключите модуль в коде:
+## Базовое подключение
 
 ```php
 use Bitrix\Main\Loader;
@@ -27,14 +19,14 @@ use Bitrix\Main\Loader;
 Loader::includeModule('oz.router');
 ```
 
-## Минимальный запуск
+## Минимальный bootstrap
 
 ```php
 <?php
 
 use Bitrix\Main\Loader;
-use Oz\Router\RouterRunner;
 use Oz\Router\Router;
+use Oz\Router\RouterRunner;
 
 require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_before.php';
 
@@ -50,42 +42,40 @@ $response = (new RouterRunner($router))->run();
 $response->send();
 ```
 
-`RouterRunner` берёт текущие `HttpApplication` и `HttpContext`, затем передаёт текущий `HttpRequest` в роутер.
+`RouterRunner` берёт текущий `HttpApplication`, проверяет наличие `HttpContext`, вызывает `Router::dispatch()` и централизованно обрабатывает исключения через `ExceptionHandler`.
 
-## Рекомендуемая структура файлов
+## Router c DI definitions
 
-Если использовать встроенный компонент и сервисную точку входа, удобнее всего держать файлы так:
+Если контроллеры, middleware или guards требуют свои зависимости, передайте PHP-DI definitions в конструктор:
 
-```text
-/local/php_interface/api/routes.php
-/local/php_interface/di.php
+```php
+<?php
+
+use DI\autowire;
+use Oz\Router\Router;
+
+$router = new Router([
+    App\Controller\UserController::class => autowire(),
+    App\Service\UserService::class => autowire(),
+]);
 ```
 
-Почему это важно:
+Эти definitions используются при сборке request-scoped контейнера на каждый совпавший запрос.
 
-- `services/api/index.php` читает путь к файлу маршрутов из настроек модуля
-- `oz:router.provider` загружает этот файл маршрутов
-- затем компонент пытается автоматически найти DI-конфиг по правилу `dirname(dirname(ROUTES_FILE_PATH)) . '/di.php'`
+## Routes file
 
-Для `/local/php_interface/api/routes.php` это даст путь `/local/php_interface/di.php`.
+Маршруты удобно держать в отдельном PHP-файле и подключать через `loadRoutesFromFile()`:
 
-## Практический layout из oz.router.sample
-
-В реальном sample-модуле используется структура:
-
-```text
-/local/modules/oz.router.sample/config/routes/api.php
-/local/modules/oz.router.sample/config/di.php
+```php
+$router->loadRoutesFromFile(__DIR__ . '/routes/api.php');
 ```
 
-Этот layout тоже совместим со встроенным компонентом:
+Файл должен вернуть:
 
-- routes file: `/local/modules/oz.router.sample/config/routes/api.php`
-- guessed DI file: `/local/modules/oz.router.sample/config/di.php`
+- один `callable`, принимающий `Router`
+- или массив `callable`
 
-То есть для модулей удобен паттерн `config/routes/*.php` + `config/di.php`, а не только размещение файлов в `php_interface`.
-
-## Пример файла маршрутов
+Пример:
 
 ```php
 <?php
@@ -97,74 +87,63 @@ return static function (Router $router): void {
 };
 ```
 
-Практический sample использует тот же формат, но с вложенными группами и контроллером:
+## Рекомендуемый layout
 
-```php
-return static function (Router $router): void {
-    $router->withMiddleware([
-        Middleware\ResponseMetaMiddleware::class,
-    ]);
+Практический layout из `oz.router.sample`:
 
-    $router->group('/api/v1', static function (Router $router): void {
-        $router->group('/product', static function (Router $router): void {
-            $router->get('/{id}', [ProductController::class, 'getProduct']);
-            $router->post('/', [ProductController::class, 'createProduct']);
-            $router->put('/{id}', [ProductController::class, 'updateProduct']);
-            $router->delete('/{id}', [ProductController::class, 'deleteProduct']);
-        });
-    });
-};
+```text
+/local/modules/oz.router.sample/config/routes/api.php
+/local/modules/oz.router.sample/config/di.php
 ```
 
-## Пример DI-конфига
+Такой layout хорошо сочетается со встроенным компонентом, потому что он ищет DI-файл по правилу:
 
-```php
-<?php
-
-use DI\autowire;
-use Local\Api\UserController;
-use Local\Api\UserService;
-
-return [
-    UserController::class => autowire(),
-    UserService::class => autowire(),
-];
+```text
+dirname(dirname(ROUTES_FILE_PATH)) . '/di.php'
 ```
 
-В `oz.router.sample` через `config/di.php` подменяются интерфейсы инфраструктурными реализациями:
-
-```php
-return [
-    ProductRepository::class => autowire(InMemoryProductRepository::class),
-    EventBus::class => autowire(BitrixEventBus::class),
-];
-```
+То есть для `config/routes/api.php` ожидается соседний `config/di.php`.
 
 ## Запуск через компонент
 
+Компонент `oz:router.provider`:
+
+1. подключает модуль
+2. читает `ROUTES_FILE_PATH`
+3. пытается автоматически загрузить `di.php`
+4. создаёт `Router`
+5. выполняет `RouterRunner`
+6. отправляет ответ и завершает приложение
+
+Пример вызова:
+
 ```php
 $APPLICATION->IncludeComponent('oz:router.provider', '', [
-    'ROUTES_FILE_PATH' => '/local/php_interface/api/routes.php',
+    'ROUTES_FILE_PATH' => '/local/modules/oz.router.sample/config/routes/api.php',
 ]);
 ```
 
-Компонент создаёт `Router`, загружает файл маршрутов, пытается подключить `di.php`, выполняет `RouterRunner`, отправляет ответ и завершает приложение.
+## Запуск через Bitrix service
 
-## Запуск через сервис Bitrix
-
-После установки модуль добавляет сервисную точку входа:
+После установки модуля доступен endpoint:
 
 ```text
 /bitrix/services/oz.api/
 ```
 
-Этот сервис проксирует в `services/api/index.php`, читает сохранённый путь к маршрутам из настроек модуля и затем включает `oz:router.provider`.
+Сервис:
+
+1. создаёт `Oz\Router\Module\Config`
+2. берёт из него `getConfigRoutesFilePath()`
+3. пробрасывает путь в `oz:router.provider`
+
+Это делает сохранённый путь к файлу маршрутов основной runtime-настройкой для встроенного service entrypoint.
 
 ## Быстрая проверка
 
-1. Зарегистрируйте маршрут `/ping`.
-2. Откройте `/ping` в браузере или вызовите через `curl`.
-3. Ожидаемый ответ:
+1. зарегистрируйте `GET /ping`
+2. вызовите endpoint из браузера или `curl`
+3. ожидайте JSON-ответ:
 
 ```json
 {"status":"ok"}
@@ -172,6 +151,6 @@ $APPLICATION->IncludeComponent('oz:router.provider', '', [
 
 ## See Also
 
-- [Маршрутизация](routing.md) - методы, динамические сегменты, форматы обработчиков
-- [Валидация](validation.md) - гидратация аргументов и проверка запроса
-- [Настройки](configuration.md) - пути, OpenAPI и поведение Swagger
+- [Маршрутизация](routing.md) - методы роутера, группы и обработчики
+- [Guards](guards.md) - предобработка доступа до middleware и handler
+- [Конфигурация](configuration.md) - настройки модуля и runtime caveats

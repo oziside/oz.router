@@ -2,22 +2,31 @@
 declare(strict_types=1);
 namespace Oz\Router\Routing;
 
-use Oz\Router\Middleware\MiddlewareNormalizer;
-
 
 final class Route
 {
+    /**
+     * The HTTP methods the route responds to.
+    */
     private array $methods;
+
+    /**
+     * The path pattern of the route, e.g. /users/{id}
+    */
     private string $path;
+
+    /**
+     * The handler for the route, 
+     * which can be a callable or a class method string like 'UserController@show'
+    */
     private mixed $handler;
+
     private string $regex;
     private array $paramNames;
     private bool $dynamic;
+    
     private Path $pathHelper;
-    private HttpMethodNormalizer $httpMethodNormalizer;
-    private MiddlewareNormalizer $middlewareNormalizer;
-    private array $middlewares;
-    private array $withoutMiddlewares;
+    private RoutePolicy $policy;
 
 
     public function __construct(
@@ -27,13 +36,9 @@ final class Route
     )
     {
         $this->pathHelper           = new Path;
-        $this->httpMethodNormalizer = new HttpMethodNormalizer;
-        $this->middlewareNormalizer = new MiddlewareNormalizer;
-        
-        $this->middlewares = [];
-        $this->withoutMiddlewares = [];
+        $this->policy = new RoutePolicy();
 
-        $this->methods = $this->httpMethodNormalizer->normalizeList($methods);
+        $this->methods = $this->normalizeMethods($methods);
         $this->path    = $this->pathHelper->normalize($path);
         $this->handler = $handler;
 
@@ -116,35 +121,91 @@ final class Route
         return $params;
     }
 
+    private function normalizeMethods(
+        array $methods,
+        string $default = 'GET'
+    ): array
+    {
+        $normalized = [];
 
-    public function withMiddleware(
-        string|array $middleware
+        foreach ($methods as $method)
+        {
+            $normalized[] = $this->normalizeMethod(
+                (string)$method,
+                $default
+            );
+        }
+
+        $normalized = array_values(array_unique($normalized));
+
+        if ($normalized === [])
+        {
+            return [$this->normalizeMethod($default, $default)];
+        }
+
+        return $normalized;
+    }
+
+    private function normalizeMethod(
+        string $method,
+        string $default = 'GET'
+    ): string
+    {
+        $method = strtoupper(trim($method));
+
+        return $method !== ''
+            ? $method
+            : strtoupper(trim($default));
+    }
+
+
+    public function middleware(
+        string|array $middlewares
     ): self
     {
-        $classes = $this->middlewareNormalizer->normalizeClasses($middleware);
-        $this->middlewares = array_values(array_unique(array_merge($this->middlewares, $classes)));
+        $this->policy->middlewares()->add($middlewares);
 
         return $this;
     }
 
-
-    public function withoutMiddleware(
-        string|array $middleware
+    public function guard(
+        string|array $guards
     ): self
     {
-        $classes = $this->middlewareNormalizer->normalizeClasses($middleware);
-        $this->withoutMiddlewares = array_values(array_unique(array_merge($this->withoutMiddlewares, $classes)));
+        $this->policy->guards()->add($guards);
 
         return $this;
     }
 
-    public function getMiddlewares(): array
+    public function exceptMiddleware(
+        string|array $middlewares
+    ): self
     {
-        return $this->middlewares;
+        $this->policy->middlewares()->except($middlewares);
+        
+        return $this;
     }
 
-    public function getWithoutMiddlewares(): array
+    public function exceptGuard(
+        string|array $guards
+    ): self
     {
-        return $this->withoutMiddlewares;
+        $this->policy->guards()->except($guards);
+
+        return $this;
+    }
+
+    public function applyPolicy(
+        RoutePolicy $policy
+    ): self
+    {
+        $this->policy->merge($policy);
+
+        return $this;
+    }
+
+    public function getPolicy(): RoutePolicy
+    {
+        return $this->policy;
     }
 }
