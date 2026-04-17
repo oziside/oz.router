@@ -1,4 +1,4 @@
-<?
+<?php
 
 \Bitrix\Main\Loader::registerAutoLoadClasses("oz.router", [
 	'\Oz\Router\Module\Routes\SettingsRoute' => 'classes/Routes/SettingsRoute.php',

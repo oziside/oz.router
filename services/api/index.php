@@ -1,4 +1,4 @@
-<?
+<?php
 define("NOT_CHECK_PERMISSIONS", true);	// Отключаем проверку прав на доступ к файлам и каталогам
 define("STOP_STATISTICS", true);		// Отключаем сбор статистики
 define("NO_AGENT_CHECK", true);			// Отключаем выполнение агентов

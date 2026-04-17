@@ -1,4 +1,4 @@
-<?
+<?php
 use Bitrix\{
     Main,
     Main\Localization\Loc  

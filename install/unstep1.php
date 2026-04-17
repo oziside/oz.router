@@ -1,4 +1,4 @@
-<?
+<?php
 global $APPLICATION;
 $APPLICATION->SetTitle('Форма удаления модуля');
 
