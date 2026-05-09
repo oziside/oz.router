@@ -1,1 +1,19 @@
+# Dependencies
+node_modules/
 
+# Package manager logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# VitePress
+docs/.vitepress/.temp/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+
+# AI tooling
+.codex/
+.ai-factory/
+.ai-factory.json
+AGENTS.md

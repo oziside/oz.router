@@ -30,7 +30,7 @@ $response = (new RouterRunner($router))->run();
 $response->send();
 ```
 
-## Что есть в модуле
+## Ключевые возможности
 
 - регистрация маршрутов через `get/post/put/patch/delete/option/any/add`
 - вложенные `group()` с префиксами и наследованием policy
@@ -47,30 +47,24 @@ $response->send();
 - компонент `oz:router.provider`
 - service endpoint `/bitrix/services/oz.api/`
 
-## Практический пример
-
-`oz.router.sample` показывает реальный layout для production-подобного API:
-
-- routes в `config/routes/api.php`
-- DI definitions в `config/di.php`
-- versioned API через `group('/api/v1', ...)`
-- controller handlers, DTO, guards и middleware
-
 ## Документация
 
 | Раздел | Описание |
 |--------|----------|
+| [Главная docs](docs/index.md) | VitePress home page с обзором модуля и картой документации |
 | [Старт и точки входа](docs/getting-started.md) | Установка, минимальный bootstrap, routes file, component и service endpoint |
+| [Архитектура и runtime](docs/architecture.md) | Внутренние модули, lifecycle запроса, entrypoints и ключевые caveats |
 | [Маршрутизация](docs/routing.md) | Методы роутера, группы, handlers, route params, DI и нормализация ответа |
 | [Guards](docs/guards.md) | Контракт guard-классов, порядок выполнения и исключение guards |
 | [Middleware](docs/middleware.md) | Контракт middleware, цепочка выполнения и post-processing ответа |
 | [Валидация](docs/validation.md) | Гидратация DTO, валидация параметров и формат ошибок |
 | [Конфигурация](docs/configuration.md) | `Module\Config`, настройки модуля и provider/service runtime |
 
-## Ключевые caveats
+## Важные замечания
 
-- встроенный `oz:router.provider` автоматически пытается подключить `di.php` рядом с routes layout, но не использует сохранённый в настройках путь к DI-файлу
-- `ExceptionHandler` возвращает JSON только при `Accept: application/json`, иначе отвечает простым HTML-телом
+- для полной картины по lifecycle и ограничениям начните с [docs/index.md](docs/index.md) и [docs/architecture.md](docs/architecture.md)
+- встроенный `oz:router.provider` подхватывает `di.php` по layout-правилу рядом с routes-конфигом
+- `ExceptionHandler` возвращает JSON только при `Accept: application/json`
 
 ## Лицензия
 

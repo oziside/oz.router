@@ -1,8 +1,17 @@
-[← Previous Page](guards.md) · [Back to README](../README.md) · [Next Page →](validation.md)
-
 # Middleware
 
-## Контракт
+## Обзор
+
+Middleware оборачивают выполнение handler и работают в середине request pipeline: после guards, но до финальной нормализации ответа.
+
+Их стоит использовать, когда нужно:
+
+- модифицировать response headers,
+- логировать время выполнения,
+- добавлять cross-cutting logic,
+- оборачивать handler в дополнительное поведение.
+
+## Контракт middleware
 
 Middleware должны реализовать `Oz\Router\Interface\MiddlewareInterface`:
 
@@ -29,9 +38,9 @@ final class AuthMiddleware implements MiddlewareInterface
 
 Экземпляры middleware резолвятся через тот же request-scoped контейнер, что и handler.
 
-## Подключение middleware
+## Глобальные middleware
 
-Глобально:
+Если обёртка нужна большинству маршрутов, подключайте её глобально:
 
 ```php
 $router->middleware([
@@ -40,7 +49,11 @@ $router->middleware([
 ]);
 ```
 
-Внутри группы:
+Это хорошо подходит для auth wrappers, tracing, correlation headers и похожих общих задач.
+
+## Middleware на группах
+
+Группа помогает применять middleware к целому разделу API:
 
 ```php
 $router->group('/api', static function (Router $router): void {
@@ -49,7 +62,11 @@ $router->group('/api', static function (Router $router): void {
 });
 ```
 
-На одном маршруте:
+Такой подход особенно удобен, если внутри префикса уже есть общая policy.
+
+## Middleware на отдельном маршруте
+
+Когда логика нужна только одному endpoint:
 
 ```php
 $router
@@ -57,7 +74,11 @@ $router
     ->middleware(TraceMiddleware::class);
 ```
 
+Это делает cross-cutting behavior видимым прямо на уровне route declaration.
+
 ## Исключение middleware
+
+Если middleware подключён шире, чем нужно, его можно исключить:
 
 ```php
 $router->middleware(AuthMiddleware::class);
@@ -67,18 +88,18 @@ $router
     ->exceptMiddleware(AuthMiddleware::class);
 ```
 
-Исключения применяются на уровне route policy и удаляют соответствующие классы из итогового списка middleware.
+Исключения применяются на уровне route policy и удаляют класс из итогового middleware chain.
 
 ## Порядок выполнения
 
-Схема такая:
+Runtime-схема выглядит так:
 
-1. выбираются middleware из global policy и route policy
-2. список разворачивается в цепочку через `array_reverse()`
-3. первый зарегистрированный middleware становится внешним
-4. handler вызывается в самом центре цепочки
+1. собираются middleware из global policy и route policy;
+2. список разворачивается через `array_reverse()`;
+3. первый зарегистрированный middleware становится внешним;
+4. handler вызывается в центре цепочки.
 
-Пример:
+Пример middleware, который модифицирует response:
 
 ```php
 final class TraceMiddleware implements MiddlewareInterface
@@ -101,37 +122,40 @@ final class TraceMiddleware implements MiddlewareInterface
 - middleware вызвал `$next()` и вернул `null` -> используется downstream response
 - middleware не вызвал `$next()` и вернул `null` -> runner сам продолжит цепочку
 
-Из-за этого безопасный шаблон остаётся прежним:
+Из-за этого safest default всё равно такой:
 
 ```php
 return $next($request);
 ```
 
+Так меньше риск неочевидного поведения в middleware chain.
+
 ## Middleware и нормализация ответа
 
 Если middleware возвращает не `HttpResponse`, результат всё равно проходит через `ResponseNormalizer`.
 
-Это позволяет middleware вернуть:
+Это позволяет вернуть:
 
 - `array`
 - DTO/object
 - scalar
 
-но на практике для middleware лучше возвращать именно `HttpResponse`, чтобы поведение было явным.
+Но на практике для middleware лучше возвращать именно `HttpResponse`, чтобы поведение было максимально явным.
 
-## Когда использовать middleware, а не guard
+## Как выбирать между middleware и guard
 
-Используйте middleware, если нужно:
+Полезное правило:
 
-- модифицировать response headers
-- логировать время выполнения
-- обернуть handler в cross-cutting logic
-- дополнять JSON-ответ служебными данными
+- если нужно разрешить или запретить доступ -> guard
+- если нужно обернуть выполнение и повлиять на response -> middleware
 
-Используйте guard, если нужно просто разрешить или запретить доступ.
+То есть middleware не заменяет guards, а решает другой класс задач.
 
-## See Also
+## Практические рекомендации
 
-- [Guards](guards.md) - проверки доступа до middleware chain
-- [Валидация](validation.md) - что происходит внутри handler arguments resolution
-- [Маршрутизация](routing.md) - lifecycle dispatch и нормализация ответов
+Обычно удобно идти так:
+
+1. сначала понять базовый dispatch flow;
+2. затем добавлять middleware для одного очевидного сценария, например trace header;
+3. после этого выносить более сложные обёртки в отдельные классы;
+4. не смешивать access control и response decoration в одном middleware без необходимости.

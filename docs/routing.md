@@ -1,50 +1,130 @@
-[← Previous Page](getting-started.md) · [Back to README](../README.md) · [Next Page →](guards.md)
-
 # Маршрутизация
 
-## Регистрация маршрутов
+## Обзор
+
+`oz.router` строится вокруг простого потока: вы регистрируете маршруты, роутер сопоставляет текущий запрос, собирает request-scoped контейнер, выполняет guards и middleware, вызывает handler и нормализует результат в `HttpResponse`.
+
+Если вы только начинаете работать с модулем, именно эту страницу лучше читать первой после [Старт и точки входа](getting-started.md). Она даёт основную mental model, а остальные страницы раскрывают отдельные части runtime подробнее.
+
+## Базовая регистрация маршрутов
+
+Самый простой маршрут принимает path и handler:
 
 ```php
-$router->get('/ping', static fn (): array => ['status' => 'ok']);
+use Oz\Router\Router;
+
+$router = new Router();
+
+$router->get('/ping', static function (): array {
+    return ['status' => 'ok'];
+});
+```
+
+Handler может быть:
+
+- `callable`
+- строкой в формате `Class@method`
+- массивом `[ClassName::class, 'method']`
+
+Пример:
+
+```php
 $router->post('/users', [UserController::class, 'store']);
 $router->put('/users/{id}', UserController::class . '@update');
-$router->patch('/users/{id}', UserController::class . '@patch');
-$router->delete('/users/{id}', UserController::class . '@delete');
+```
+
+## Где хранить маршруты
+
+На практике маршруты удобно выносить в отдельный PHP-файл:
+
+```php
+$router->loadRoutesFromFile(__DIR__ . '/routes/api.php');
+```
+
+`RoutesFileLoader` ожидает, что файл вернёт:
+
+- один `callable`, принимающий `Router`
+- или массив `callable`
+
+Пример routes file:
+
+```php
+<?php
+
+use Oz\Router\Router;
+
+return static function (Router $router): void {
+    $router->get('/ping', static fn (): array => ['status' => 'ok']);
+};
+```
+
+Если вы используете встроенные entrypoints модуля, лучше придерживаться layout:
+
+```text
+config/routes/api.php
+config/di.php
+```
+
+Причина в том, что `oz:router.provider` ищет `di.php` относительно routes file, а не по отдельной runtime-настройке. Подробнее это разобрано на странице [Архитектура и runtime](architecture.md).
+
+## Доступные методы роутера
+
+Роутер поддерживает основные HTTP verb helpers:
+
+```php
+$router->get('/ping', static fn (): array => ['ok' => true]);
+$router->post('/users', [UserController::class, 'store']);
+$router->put('/users/{id}', [UserController::class, 'update']);
+$router->patch('/users/{id}', [UserController::class, 'patch']);
+$router->delete('/users/{id}', [UserController::class, 'delete']);
 $router->option('/options', static fn (): string => 'ok');
 $router->any('/health', static fn (): string => 'ok');
+```
 
+Если нужно обслуживать несколько методов одним handler, используйте `add()`:
+
+```php
 $router->add(['GET', 'POST'], '/import', ImportController::class . '@run');
 ```
 
-Поддерживаются handler-форматы:
-
-- `Class@method`
-- `[ClassName::class, 'method']`
-- любой `callable`
-
 ## Нормализация path и method
 
-- пути приводятся к каноническому виду с ведущим `/`
-- `users`, `/users` и `/users/` считаются одним маршрутом
-- HTTP method нормализуется через `strtoupper(trim(...))`
-- пустой или невалидный method приводит к `400 Bad Request`
+Перед match роутер нормализует вход:
 
-## Динамические сегменты
+- `users`, `/users` и `/users/` считаются одним и тем же path
+- HTTP method приводится к верхнему регистру
+- пустой или невалидный method даёт `400 Bad Request`
 
-Поддерживаются:
+Это делает регистрацию маршрутов менее хрупкой, но важно помнить, что match всё равно остаётся строгим по итоговому нормализованному path.
 
-- `/products/{id}`
-- `/users/{id:\d+}`
+## Route Parameters
 
-Пример:
+### Обязательные параметры
+
+Поддерживаются динамические сегменты вида:
+
+```php
+$router->get('/users/{id}', [UserController::class, 'show']);
+```
+
+После совпадения path параметр попадает:
+
+- в handler arguments
+- в request-scoped DI контейнер под ключом `'route_params'`
+
+### Ограничения через регулярные выражения
+
+Можно задавать constraint прямо в path:
 
 ```php
 $router->get('/users/{id:\d+}', [UserController::class, 'show']);
 ```
 
-После совпадения path-параметры URL-декодируются и попадают в handler arguments и в DI под ключом `'route_params'`.
+Это удобно, когда нужно сразу отфильтровать некорректный URI ещё на этапе match.
 
-## Группы
+## Route Groups
+
+Группы позволяют накапливать path prefix и policy:
 
 ```php
 $router->group('/api', static function (Router $router): void {
@@ -61,26 +141,47 @@ $router->group('/api', static function (Router $router): void {
 - `GET /api/ping`
 - `GET /api/v1/users`
 
-`group()` объединяет не только path prefix, но и накопленную policy для guards и middleware.
+Практически `group()` полезен в трёх сценариях:
 
-## Routes из файла
+- versioned API
+- общие guards и middleware для набора маршрутов
+- группировка по bounded URI segment вроде `/admin`, `/internal`, `/api`
+
+## Guards и Middleware на маршрутах
+
+Маршруты и группы поддерживают policy-методы:
 
 ```php
-$router->loadRoutesFromFile(__DIR__ . '/routes/api.php');
+$router->guard(AuthGuard::class);
+$router->middleware(TraceMiddleware::class);
+
+$router
+    ->get('/admin/users', [AdminController::class, 'index'])
+    ->guard(AdminGuard::class)
+    ->middleware(AdminAuditMiddleware::class);
 ```
 
-`RoutesFileLoader` проверяет:
+Также поддерживаются исключения:
 
-- путь не пустой
-- файл существует
-- файл читается
-- каждая запись в массиве loaders является `callable`
+```php
+$router
+    ->get('/health', static fn (): array => ['ok' => true])
+    ->exceptGuard(AuthGuard::class)
+    ->exceptMiddleware(TraceMiddleware::class);
+```
 
-## Request-scoped container
+Полезная mental model:
+
+- guard отвечает на вопрос “можно ли идти дальше?”
+- middleware оборачивает выполнение и может модифицировать response
+
+Подробности вынесены в [Guards](guards.md) и [Middleware](middleware.md), но для чтения routing lifecycle достаточно помнить именно это разделение ролей.
+
+## Handler Arguments и DI
 
 На каждый совпавший маршрут создаётся новый контейнер через `RequestContainerFactory`.
 
-В контейнер автоматически регистрируются:
+В него автоматически попадают:
 
 - `Bitrix\Main\HttpApplication`
 - `Bitrix\Main\HttpContext`
@@ -88,34 +189,18 @@ $router->loadRoutesFromFile(__DIR__ . '/routes/api.php');
 - `'route_params'`
 - пользовательские definitions из `new Router($definitions)`
 
-Это позволяет автосвязывать:
+Это позволяет писать handler с типизированными аргументами:
 
-- контроллеры
-- сервисы
-- middleware
-- guards
+```php
+use DI\autowire;
 
-## Резолв аргументов handler
+$router = new Router([
+    App\Controller\UserController::class => autowire(),
+    App\Service\UserService::class => autowire(),
+]);
+```
 
-Входные данные собираются в таком порядке:
-
-1. query-параметры
-2. `POST`-данные
-3. JSON body
-4. параметры маршрута
-
-Поздние источники перекрывают ранние, поэтому path params имеют максимальный приоритет.
-
-Резолвер поддерживает:
-
-- scalar-типы `string`, `int`, `float`, `bool`, `array`
-- nullable и union-типы
-- `HttpRequest`
-- backed enum
-- DTO-объекты с гидратацией через конструктор
-- сервисы из DI-контейнера
-
-Пример:
+Пример handler с route parameter, DTO и DI:
 
 ```php
 final class ShowUserQuery
@@ -138,13 +223,71 @@ final class UserController
 }
 ```
 
+## Источники входных данных
+
+Когда роутер резолвит handler arguments, input собирается в таком порядке:
+
+1. query-параметры
+2. `POST`-данные
+3. JSON body
+4. параметры маршрута
+
+Поздние источники перекрывают ранние, поэтому route params имеют наивысший приоритет.
+
+Это особенно важно понимать, если вы ожидаете одинаковые имена полей и в body, и в path.
+
+## Что умеет резолвер аргументов
+
+Из коробки поддерживаются:
+
+- scalar-типы `string`, `int`, `float`, `bool`, `array`
+- nullable и union-типы
+- `HttpRequest`
+- backed enum
+- DTO-объекты с гидратацией через конструктор
+- сервисы из DI-контейнера
+
+Если тип нельзя корректно собрать из входа, вы получите mapping error, который будет превращён в `400 Bad Request`.
+
+## Валидация аргументов и DTO
+
+После маппинга входа `RequestValidator` проверяет аргументы и DTO через `Bitrix\Main\Validation\ValidationService`.
+
+Пример:
+
+```php
+use Bitrix\Main\Validation\Rule;
+
+final class CreateUserReq
+{
+    public function __construct(
+        #[Rule\NotEmpty]
+        public readonly string $name,
+
+        #[Rule\Length(max: 255)]
+        public readonly string $email,
+    ) {}
+}
+
+$router->post('/users', static function (CreateUserReq $req): array {
+    return ['created' => true, 'name' => $req->name];
+});
+```
+
+Разделение ошибок такое:
+
+- ошибка маппинга -> `400 Bad Request`
+- ошибка валидации -> `422 Unprocessable Content`
+
+Отдельные детали описаны на странице [Валидация](validation.md).
+
 ## Порядок dispatch
 
-`Router::dispatch()` работает так:
+Внутренне `Router::dispatch()` проходит по такому pipeline:
 
 1. извлекает method и path
 2. находит совпавший `Route`
-3. создаёт request container
+3. создаёт request-scoped container
 4. выполняет guards
 5. выполняет middleware chain
 6. вызывает handler
@@ -157,19 +300,21 @@ final class UserController
 
 ## Нормализация ответа
 
-`ResponseNormalizer` обрабатывает результат handler или middleware так:
+`ResponseNormalizer` приводит результат handler к `HttpResponse`.
+
+Основные сценарии:
 
 - `HttpResponse` возвращается как есть
 - `array` и `object` превращаются в `Bitrix\Main\Engine\Response\Json`
 - scalar и `null` становятся телом обычного `HttpResponse`
 
-Для объектов сериализация работает лучше всего, если объект:
+Для объектов JSON-сериализация работает лучше всего, если объект:
 
 - реализует `JsonSerializable`
 - реализует `Bitrix\Main\Type\Contract\Arrayable`
 - или помечен `#[Oz\Router\Attribute\JsonResource]`
 
-Пример DTO-ответа:
+Пример:
 
 ```php
 use Oz\Router\Attribute\JsonResource;
@@ -184,19 +329,25 @@ final class ProductRes
 }
 ```
 
-## Формат ошибок
+## Ошибки и формат ответа
 
-`RouterRunner` перехватывает все исключения и передаёт их в `ExceptionHandler`.
+`RouterRunner` перехватывает исключения и передаёт их в `ExceptionHandler`.
 
-Поведение зависит от `Accept`:
+Формат ответа зависит от `Accept` header:
 
-- `application/json` -> JSON c `statusCode`, `message` и при необходимости `errors`
-- всё остальное -> HTML-ответ с текстом ошибки
+- `application/json` -> JSON c `statusCode`, `message` и, при необходимости, `errors`
+- всё остальное -> HTML response с текстом ошибки
 
-Это важно для API: чтобы получать JSON-ошибки стабильно, клиент должен отправлять `Accept: application/json`.
+Для API-клиентов это критично: чтобы получать JSON-ошибки стабильно, отправляйте `Accept: application/json`.
 
-## See Also
+## Практические рекомендации
 
-- [Старт и точки входа](getting-started.md) - bootstrap и встроенные entrypoints
-- [Guards](guards.md) - контроль доступа до middleware и handler
-- [Валидация](validation.md) - DTO, validation rules и ответы `422`
+Если смотреть на модуль в стиле Laravel docs, то хорошая рабочая стратегия такая:
+
+1. начните с простого `GET /ping`
+2. затем вынесите маршруты в routes file
+3. подключите DI definitions
+4. используйте groups для версионирования и префиксов
+5. добавляйте guards и middleware только после того, как базовый routing flow уже ясен
+
+Так вы быстрее поймёте основной pipeline и избежите ощущения, что магия происходит сразу в нескольких местах.

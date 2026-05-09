@@ -1,20 +1,18 @@
-[← Previous Page](routing.md) · [Back to README](../README.md) · [Next Page →](middleware.md)
-
 # Guards
 
-## Зачем нужны guards
+## Обзор
 
-Guards выполняются после совпадения маршрута и сборки request container, но до middleware и handler.
+Guards запускаются после match маршрута и после сборки request-scoped контейнера, но до middleware и handler. Их задача проста: решить, можно ли продолжать выполнение.
 
-Типичный сценарий:
+Если вам нужно:
 
-- проверка токена
-- проверка роли
-- запрет доступа к части API
+- проверить токен,
+- проверить роль,
+- запретить доступ к части API,
 
-Если guard запрещает доступ, роутер выбрасывает `403 Forbidden`.
+то это обычно задача guard, а не middleware.
 
-## Контракт
+## Контракт guard
 
 Guard должен реализовать `Oz\Router\Interface\CanActivateInterface`:
 
@@ -33,9 +31,11 @@ final class AdminGuard implements CanActivateInterface
 }
 ```
 
-## GuardContext
+Если `canActivate()` возвращает `false`, роутер выбрасывает `403 Forbidden`.
 
-В guard доступен `GuardContext`, который содержит:
+## Что доступно внутри GuardContext
+
+Guard получает `GuardContext`, в котором уже собраны:
 
 - `HttpApplication`
 - `HttpContext`
@@ -44,17 +44,17 @@ final class AdminGuard implements CanActivateInterface
 - `routeParams`
 - request-scoped DI container
 
-Это делает guard удобным местом для проверок, которым нужен и request, и параметры маршрута, и сервисы контейнера.
+Это делает guard удобной точкой для правил доступа, которым одновременно нужны request, параметры маршрута и сервисы контейнера.
 
-## Подключение guards
+## Глобальные guards
 
-Глобально:
+Если правило должно применяться ко многим маршрутам, подключите guard глобально:
 
 ```php
 $router->guard(AdminGuard::class);
 ```
 
-С массивом:
+Можно передавать и массив:
 
 ```php
 $router->guard([
@@ -63,7 +63,9 @@ $router->guard([
 ]);
 ```
 
-На уровне группы:
+## Guards на группах
+
+Группа полезна, когда нужно защитить целый сегмент API:
 
 ```php
 $router->group('/api', static function (Router $router): void {
@@ -72,7 +74,11 @@ $router->group('/api', static function (Router $router): void {
 });
 ```
 
-На уровне конкретного маршрута:
+Такой стиль особенно удобен для `/api`, `/admin`, `/internal` и других префиксных зон.
+
+## Guards на отдельном маршруте
+
+Если правило нужно только одному endpoint:
 
 ```php
 $router
@@ -80,9 +86,11 @@ $router
     ->guard(AdminGuard::class);
 ```
 
+Это самый читаемый вариант, когда ограничение относится к конкретному route definition.
+
 ## Исключение guards
 
-Guard можно исключить на маршруте или в группе через `exceptGuard()`:
+Если guard включён глобально или на группе, его можно убрать точечно через `exceptGuard()`:
 
 ```php
 $router->guard(AuthGuard::class);
@@ -92,36 +100,43 @@ $router
     ->exceptGuard(AuthGuard::class);
 ```
 
-Именно так устроена policy-модель роутера:
+Практически policy-модель работает так:
 
-1. собираются включённые guards из global policy и route policy
-2. route exclusions удаляют ненужные классы
-3. итоговый список резолвится через контейнер
-4. guards запускаются по порядку
+1. собираются guards из global policy и route policy;
+2. exclusions удаляют ненужные классы;
+3. итоговый список резолвится через контейнер;
+4. guards запускаются по порядку.
+
+## Как выбирать между guard и middleware
+
+Полезное разделение ролей:
+
+- guard отвечает на вопрос “можно ли идти дальше?”
+- middleware отвечает за оборачивание выполнения и модификацию response
+
+Если вы не меняете response, не логируете время и не хотите оборачивать execution flow, а просто проверяете доступ, начинайте с guard.
 
 ## Поведение при ошибках
 
-- если guard-класс не реализует `CanActivateInterface`, будет `500`
+Важные сценарии:
+
+- если класс не реализует `CanActivateInterface`, будет `500`
 - если `canActivate()` вернул `false`, будет `403 Forbidden`
 - если guard сам выбросил исключение, его обработает `ExceptionHandler`
 
-Сообщение ошибки по умолчанию:
+Сообщение по умолчанию:
 
 ```text
 Access denied by guard <ClassName>.
 ```
 
-## Guards и middleware
+## Практические рекомендации
 
-Guards не предназначены для постобработки ответа. Для этого нужен middleware.
+Обычно удобно идти так:
 
-Практическое разделение такое:
+1. сначала собрать базовый routing flow без guards;
+2. затем добавить один guard для auth;
+3. после этого выносить более специфичные access rules в отдельные guard-классы;
+4. исключения оформлять через `exceptGuard()`, а не через условные конструкции внутри handler.
 
-- guard отвечает на вопрос "можно ли идти дальше?"
-- middleware отвечает за оборачивание выполнения и модификацию ответа
-
-## See Also
-
-- [Маршрутизация](routing.md) - общий lifecycle dispatch
-- [Middleware](middleware.md) - оборачивание handler и post-processing
-- [Конфигурация](configuration.md) - встроенные entrypoints и настройки модуля
+Так правила доступа остаются видны прямо на уровне route declaration.
